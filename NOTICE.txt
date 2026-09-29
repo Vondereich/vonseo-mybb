@@ -1,0 +1,10 @@
+VonSEO for MyBB
+Copyright (c) 2026 Vondereich.
+
+SPDX-License-Identifier: LGPL-3.0-only
+
+VonSEO is licensed under the GNU Lesser General Public License, version 3
+only. The complete LGPLv3 terms, including the incorporated GPLv3 terms,
+are provided in LICENSE.txt.
+
+MyBB is a separate project. This package does not include MyBB core files.

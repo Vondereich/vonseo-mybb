@@ -1,0 +1,43 @@
+# VonSEO optional Apache routes for MyBB.
+# Merge these into the .htaccess in your MyBB root. Do NOT overwrite your full file.
+# Requires RewriteEngine On.
+
+# Clean crawler endpoints.
+# IMPORTANT for subfolder boards (for example https://example.com/forum):
+# this MyBB-root rule creates /forum/robots.txt, not the host-level /robots.txt
+# requested by crawlers. Add a static /robots.txt or an equivalent rewrite in
+# the web-document root. Keep the dynamic endpoint below as a preview/fallback.
+# Preserve only supported sitemap selectors. Any extra query parameters fall
+# back to the index route and cannot replace the internal action value.
+RewriteCond %{QUERY_STRING} ^type=(forums|threads|announcements|calendars|events)&page=([1-9][0-9]*)$
+RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap&type=%1&page=%2 [L]
+RewriteCond %{QUERY_STRING} ^page=([1-9][0-9]*)&type=(forums|threads|announcements|calendars|events)$
+RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap&type=%2&page=%1 [L]
+RewriteCond %{QUERY_STRING} ^type=(forums|threads|announcements|calendars|events)$
+RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap&type=%1 [L]
+RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap [L]
+RewriteRule ^robots\.txt$ misc.php?action=vonseo_robots [L]
+
+# OPTIONAL beta keyword URLs. Enable the matching VonSEO setting only
+# after direct visits through these rules work at the MyBB installation root.
+# Keep these rules when turning the setting off: VonSEO then issues temporary
+# redirects from previously shared keyword paths back to MyBB's native URLs.
+# Stable numeric IDs
+# avoid collisions; the keyword portion is cosmetic and may change on rename.
+# Keep these before the generic fallback below. MyBB stock .html rules may stay.
+# Deliberately do not append the original query string: ?tid= / ?fid=
+# must never override the numeric ID captured from the keyword path.
+# Flat URLs preserve MyBB's many board-relative links on direct visits.
+RewriteRule ^t-([1-9][0-9]*)-[^/]+--p([1-9][0-9]*)$ showthread.php?tid=$1&page=$2 [L]
+RewriteRule ^t-([1-9][0-9]*)-[^/]+--post-([1-9][0-9]*)$ showthread.php?tid=$1&pid=$2 [L]
+RewriteRule ^t-([1-9][0-9]*)-[^/]+--(lastpost|newpost|nextnewest|nextoldest)$ showthread.php?tid=$1&action=$2 [L]
+RewriteRule ^t-([1-9][0-9]*)-[^/]+$ showthread.php?tid=$1 [L]
+RewriteRule ^f-([1-9][0-9]*)-[^/]+--p([1-9][0-9]*)$ forumdisplay.php?fid=$1&page=$2 [L]
+RewriteRule ^f-([1-9][0-9]*)-[^/]+$ forumdisplay.php?fid=$1 [L]
+
+# OPTIONAL: VonSEO redirect/404 router for old or unknown pretty paths.
+# Place this AFTER MyBB's normal forum/thread SEO rewrite rules, so MyBB routes win first.
+# Existing files and directories are never intercepted.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.+)$ misc.php?action=vonseo_route [L,QSA]
