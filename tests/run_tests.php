@@ -213,6 +213,36 @@ class RecordingRedirects extends VonSEO_Redirects
     }
 }
 
+class LegacyRecordingRedirects extends RecordingRedirects
+{
+    protected function csvEscapeCharacter(): string
+    {
+        return "\0";
+    }
+}
+
+class MockCsvExportDb extends MockDb
+{
+    public $rows = array();
+    public $position = 0;
+
+    public function table_exists(string $table)
+    {
+        return $table === 'vonseo_redirects';
+    }
+
+    public function simple_select(string $table, string $fields, string $conditions = '', array $options = array())
+    {
+        $this->position = 0;
+        return $this->rows;
+    }
+
+    public function fetch_array(array $query)
+    {
+        return isset($query[$this->position]) ? $query[$this->position++] : false;
+    }
+}
+
 class InspectableRedirects extends VonSEO_Redirects
 {
     public function getRequestCandidates()
@@ -953,13 +983,18 @@ $t->assert($url->thread(44, 0, '!!!') === 'https://example.com/forum/t-44-thread
 $rootUrl = new VonSEO_Url('https://example.com');
 $t->assert($rootUrl->forum(7, 0, 'News') === 'https://example.com/f-7-news', 'Keyword URL works from a root-path MyBB install');
 $rewriteRules = file_get_contents(MYBB_ROOT.'extras/htaccess-vonseo.txt');
-preg_match_all('/^RewriteRule \^(?:t|f)-[^\r\n]+$/m', $rewriteRules, $keywordRules);
-$safeKeywordRules = count($keywordRules[0]) === 6;
-foreach($keywordRules[0] as $keywordRule)
+$safeKeywordRules = true;
+foreach(array("\n", "\r\n") as $ruleLineEnding)
 {
-    $safeKeywordRules = $safeKeywordRules && strpos($keywordRule, 'QSA') === false && substr(trim($keywordRule), -3) === '[L]';
+    $ruleFixture = str_replace("\n", $ruleLineEnding, str_replace("\r\n", "\n", $rewriteRules));
+    preg_match_all('/^RewriteRule \^(?:t|f)-[^\r\n]+\r?$/m', $ruleFixture, $keywordRules);
+    $safeKeywordRules = $safeKeywordRules && count($keywordRules[0]) === 6;
+    foreach($keywordRules[0] as $keywordRule)
+    {
+        $safeKeywordRules = $safeKeywordRules && strpos($keywordRule, 'QSA') === false && substr(trim($keywordRule), -3) === '[L]';
+    }
 }
-$t->assert($safeKeywordRules, 'Keyword Apache rules discard incoming query parameters instead of allowing ID overrides');
+$t->assert($safeKeywordRules, 'Keyword Apache rules discard incoming query parameters in both LF and CRLF checkouts');
 $t->assert(strpos($rewriteRules, 'sitemap\\.xml$ misc.php?action=vonseo_sitemap [L,QSA]') === false &&
     strpos($rewriteRules, 'robots\\.txt$ misc.php?action=vonseo_robots [L,QSA]') === false &&
     strpos($rewriteRules, 'type=(forums|threads|announcements|calendars|events)') !== false,
@@ -1201,6 +1236,68 @@ $t->assert(!empty($oversizeImport['errors']) && count($csvRedirects->saved) === 
 $multilineCsv = "source_path,target_url,status_code,enabled\n\"/bad\nsource\",/target,301,1\n/after-multiline,/after-target,302,1\n";
 $multilineResult = $csvRedirects->importCsv($multilineCsv);
 $t->assert($multilineResult['imported'] === 1 && $multilineResult['skipped'] === 1 && end($csvRedirects->saved)[0] === '/after-multiline', 'CSV parser treats a quoted multiline field as one rejected row and continues safely');
+
+$csvOriginalDb = $GLOBALS['db'];
+$csvEdgeTarget = 'https://example.com/forum/?label="quoted"&path=C:\\folder\\';
+$csvEdgeExpected = "source_path,target_url,status_code,enabled\n".
+    '"/csv,source","https://example.com/forum/?label=""quoted""&path=C:\\folder\\",302,0'."\n";
+try
+{
+    foreach(array('Runtime' => new RecordingRedirects($url), 'Legacy' => new LegacyRecordingRedirects($url)) as $csvMode => $csvDriver)
+    {
+        $csvDb = new MockCsvExportDb();
+        $csvDb->rows = array(array('source_path' => '/csv,source', 'target_url' => $csvEdgeTarget, 'status_code' => 302, 'enabled' => 0));
+        $GLOBALS['db'] = $csvDb;
+        $csvExport = $csvDriver->exportCsv();
+        $t->assert($csvExport === $csvEdgeExpected, $csvMode.' CSV export preserves commas, doubled quotes and literal trailing backslashes');
+        $csvRoundTrip = $csvDriver->importCsv($csvExport);
+        $t->assert($csvRoundTrip['imported'] === 1 && empty($csvRoundTrip['errors']) && $csvDriver->saved === array(array('/csv,source', $csvEdgeTarget, 302, 0, 0)),
+            $csvMode.' CSV export/import round trip preserves all fields');
+        $csvDb->rows = array();
+        $t->assert($csvDriver->exportCsv() === "source_path,target_url,status_code,enabled\n", $csvMode.' CSV export writes a valid header for an empty redirect table');
+
+        $csvSavedBefore = count($csvDriver->saved);
+        $csvBinary = $csvSample."/binary,\"/bad\0\"\"value\",301,1\n";
+        $csvBinaryResult = $csvDriver->importCsv($csvBinary);
+        $t->assert(!empty($csvBinaryResult['errors']) && $csvBinaryResult['imported'] === 0 && count($csvDriver->saved) === $csvSavedBefore,
+            $csvMode.' CSV text containing NUL is rejected before any partial redirect writes');
+
+        $csvFixture = tmpfile();
+        try
+        {
+            fwrite($csvFixture, $csvSample);
+            fflush($csvFixture);
+            $csvFixtureMeta = stream_get_meta_data($csvFixture);
+            $csvFileResult = $csvDriver->importCsvFile($csvFixtureMeta['uri']);
+            $t->assert($csvFileResult['imported'] === 2 && empty($csvFileResult['errors']) && count($csvDriver->saved) === $csvSavedBefore + 2,
+                $csvMode.' CSV file import uses the compatible parser');
+            $csvSavedBefore = count($csvDriver->saved);
+            ftruncate($csvFixture, 0);
+            rewind($csvFixture);
+            fwrite($csvFixture, $csvBinary);
+            fflush($csvFixture);
+            $csvBinaryFileResult = $csvDriver->importCsvFile($csvFixtureMeta['uri']);
+            $t->assert(!empty($csvBinaryFileResult['errors']) && $csvBinaryFileResult['imported'] === 0 && count($csvDriver->saved) === $csvSavedBefore,
+                $csvMode.' CSV file containing NUL is rejected before any partial redirect writes');
+        }
+        finally
+        {
+            fclose($csvFixture);
+        }
+
+        $csvModeMultiline = $csvDriver->importCsv($multilineCsv);
+        $t->assert($csvModeMultiline['imported'] === 1 && $csvModeMultiline['skipped'] === 1 && end($csvDriver->saved)[0] === '/after-multiline',
+            $csvMode.' CSV keeps quoted multiline input as one invalid row and continues with the next row');
+        $csvSavedBefore = count($csvDriver->saved);
+        $csvModeBound = $csvDriver->importCsv($tooManyRows);
+        $t->assert(!empty($csvModeBound['errors']) && count($csvDriver->saved) === $csvSavedBefore,
+            $csvMode.' CSV row limit fails before any redirect writes');
+    }
+}
+finally
+{
+    $GLOBALS['db'] = $csvOriginalDb;
+}
 
 $runtimeDb = $GLOBALS['db'];
 $GLOBALS['db'] = new MockDb();
@@ -1635,7 +1732,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.0.2', 'Source plugin metadata matches the 1.0.2 release');
+$t->assert(vonseo_info()['version'] === '1.0.3', 'Source plugin metadata matches the 1.0.3 release');
 $pluginSource = file_get_contents(MYBB_ROOT.'inc/plugins/vonseo.php');
 $t->assert(strpos($pluginSource, "add_hook('postbit_announcement', 'vonseo_capture_guest_announcement'") !== false,
     'Announcement text capture is registered on MyBB postbit_announcement');

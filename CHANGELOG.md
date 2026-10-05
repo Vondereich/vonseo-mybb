@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 - 2026-10-05
+
+- Fixed redirect CSV import and export on PHP 7.1-7.3, where the empty escape argument accepted since PHP 7.4 caused warnings and prevented valid CSV from being processed. Newer runtimes retain the explicit empty escape; older runtimes use an inert single-byte sentinel rather than backslash escaping.
+- Reject binary NUL bytes in either text or uploaded-file imports before parsing or saving any redirect, so the legacy sentinel cannot alter field boundaries. Retained the 2 MiB and 5,000-row limits, quoted multiline row handling and existing validation.
+- Added 16 cross-runtime and forced-legacy regressions for export/import round trips, commas, doubled quotes, literal/trailing backslashes, header-only exports, file imports, NUL rejection and row-limit failures. No schema migration or SEO-default change is required.
+- Made the keyword rewrite safety assertion check both LF and Windows CRLF fixtures instead of failing on Git's line-ending conversion. The Apache rules themselves are unchanged.
+- Local verification passed 28 PHP syntax checks, 301 main regressions, 23 ACP list checks and 32 ACP mutation cases on PHP 8.3-8.5. Older-runtime compatibility is checked separately by the GitHub Actions matrix, not inferred from modern-only local runs.
+
 ## 1.0.2 - 2026-10-05
 
 - Expanded Apache setup into separate domain-root and subfolder procedures, with a dedicated optional host-root robots example, existing-robots ownership safeguards, rewrite prerequisites, direct HTTP checks and rollback instructions. Clarified that the ACP subfolder reminder is static guidance and can remain after successful setup; plugin runtime and defaults are unchanged by this documentation revision.

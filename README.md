@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Current stable release: **1.0.2**. Keyword URLs remain opt-in and off by default. This maintenance update fixes order-dependent thread-post keyword links while retaining searchable ACP lists and Nginx rewrite examples. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
+Current stable release: **1.0.3**. Keyword URLs remain opt-in and off by default. This maintenance update fixes redirect CSV import/export compatibility on PHP 7.1-7.3 while retaining the keyword post-target fix, searchable ACP lists and Nginx rewrite examples. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 

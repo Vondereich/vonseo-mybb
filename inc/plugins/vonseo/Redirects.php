@@ -584,7 +584,8 @@ class VonSEO_Redirects
         }
 
         $out = fopen('php://temp', 'r+');
-        fputcsv($out, array('source_path', 'target_url', 'status_code', 'enabled'), ',', '"', '');
+        $escape = $this->csvEscapeCharacter();
+        fputcsv($out, array('source_path', 'target_url', 'status_code', 'enabled'), ',', '"', $escape);
 
         $query = $db->simple_select('vonseo_redirects', 'source_path,target_url,status_code,enabled', '', array('order_by' => 'rid', 'order_dir' => 'ASC'));
         while($row = $db->fetch_array($query))
@@ -594,7 +595,7 @@ class VonSEO_Redirects
                 $row['target_url'],
                 $row['status_code'],
                 $row['enabled']
-            ), ',', '"', '');
+            ), ',', '"', $escape);
         }
 
         rewind($out);
@@ -653,6 +654,18 @@ class VonSEO_Redirects
     }
 
     /**
+     * Disable proprietary CSV escaping on supported PHP versions. Older PHP
+     * requires one byte: NUL acts as an inert sentinel because imports reject
+     * NUL bytes before parsing, preserving literal backslashes and doubled quotes.
+     *
+     * @return string
+     */
+    protected function csvEscapeCharacter(): string
+    {
+        return PHP_VERSION_ID >= 70400 ? '' : "\0";
+    }
+
+    /**
      * @param resource $stream
      * @param bool $overwrite
      * @return array
@@ -661,9 +674,28 @@ class VonSEO_Redirects
     {
         global $db;
 
+        // This is a bounded, seekable temporary stream created by either importer.
+        // Reject binary NUL before any rule is saved or a legacy CSV escape is used.
+        $content = stream_get_contents($stream, self::MAX_CSV_BYTES + 1);
+        if($content === false)
+        {
+            return $this->emptyImportResult('CSV content could not be read.');
+        }
+        if(strlen($content) > self::MAX_CSV_BYTES)
+        {
+            return $this->emptyImportResult('CSV exceeds the 2 MiB import limit.');
+        }
+        if(strpos($content, "\0") !== false)
+        {
+            return $this->emptyImportResult('CSV contains unsupported NUL bytes.');
+        }
+        unset($content);
+        rewind($stream);
+
         $rows = array();
         $rowNum = 0;
-        while(($cols = fgetcsv($stream, 0, ',', '"', '')) !== false)
+        $escape = $this->csvEscapeCharacter();
+        while(($cols = fgetcsv($stream, 0, ',', '"', $escape)) !== false)
         {
             ++$rowNum;
             if($cols === array(null) || (count($cols) === 1 && trim((string)$cols[0]) === ''))
