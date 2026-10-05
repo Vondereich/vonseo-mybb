@@ -1,12 +1,20 @@
 # VonSEO optional Apache routes for MyBB.
-# Merge these into the .htaccess in your MyBB root. Do NOT overwrite your full file.
-# Requires RewriteEngine On.
+# Open this file locally; do not upload extras/ or rename this example to .htaccess.
+# Copy only the blocks you need into the EXISTING MyBB-root .htaccess,
+# beside index.php/showthread.php. Do NOT overwrite your full file.
+# If missing, start with MyBB's own htaccess.txt; see README.md, Apache setup.
+# Requires mod_rewrite, allowed rewrite overrides and RewriteEngine On.
+# Place blocks A/B inside the rewrite section, before any generic catch-all.
+# Keep MyBB's native rules. Optional block C must be last if used.
+# Back up configuration outside the web root before editing.
 
-# Clean crawler endpoints.
+# BLOCK A: Clean crawler endpoints (copy this whole block if wanted).
 # IMPORTANT for subfolder boards (for example https://example.com/forum):
 # this MyBB-root rule creates /forum/robots.txt, not the host-level /robots.txt
-# requested by crawlers. Add a static /robots.txt or an equivalent rewrite in
-# the web-document root. Keep the dynamic endpoint below as a preview/fallback.
+# requested by crawlers. The SEPARATE htaccess-vonseo-host-root.txt example
+# belongs at the web-document root, never inside /forum/. If a parent robots
+# file or CMS already owns /robots.txt, keep it and merge appropriate directives
+# instead of adding a competing rewrite. Follow README.md, Case B.
 # Preserve only supported sitemap selectors. Any extra query parameters fall
 # back to the index route and cannot replace the internal action value.
 RewriteCond %{QUERY_STRING} ^type=(forums|threads|announcements|calendars|events)&page=([1-9][0-9]*)$
@@ -16,9 +24,11 @@ RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap&type=%2&page=%1 [L]
 RewriteCond %{QUERY_STRING} ^type=(forums|threads|announcements|calendars|events)$
 RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap&type=%1 [L]
 RewriteRule ^sitemap\.xml$ misc.php?action=vonseo_sitemap [L]
+# Omit this robots alias if an existing file/application owns the same path.
 RewriteRule ^robots\.txt$ misc.php?action=vonseo_robots [L]
 
-# OPTIONAL beta keyword URLs. Enable the matching VonSEO setting only
+# BLOCK B: OPTIONAL keyword URLs (copy all six rules together).
+# Enable the matching VonSEO setting only
 # after direct visits through these rules work at the MyBB installation root.
 # Keep these rules when turning the setting off: VonSEO then issues temporary
 # redirects from previously shared keyword paths back to MyBB's native URLs.
@@ -35,7 +45,8 @@ RewriteRule ^t-([1-9][0-9]*)-[^/]+$ showthread.php?tid=$1 [L]
 RewriteRule ^f-([1-9][0-9]*)-[^/]+--p([1-9][0-9]*)$ forumdisplay.php?fid=$1&page=$2 [L]
 RewriteRule ^f-([1-9][0-9]*)-[^/]+$ forumdisplay.php?fid=$1 [L]
 
-# OPTIONAL: VonSEO redirect/404 router for old or unknown pretty paths.
+# BLOCK C: OPTIONAL VonSEO redirect/404 router for old or unknown pretty paths.
+# Do not copy this block unless custom-path routing is wanted.
 # Place this AFTER MyBB's normal forum/thread SEO rewrite rules, so MyBB routes win first.
 # Existing files and directories are never intercepted.
 RewriteCond %{REQUEST_FILENAME} !-f

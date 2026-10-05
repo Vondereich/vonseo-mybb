@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.2 - 2026-10-05
+
+- Expanded Apache setup into separate domain-root and subfolder procedures, with a dedicated optional host-root robots example, existing-robots ownership safeguards, rewrite prerequisites, direct HTTP checks and rollback instructions. Clarified that the ACP subfolder reminder is static guidance and can remain after successful setup; plugin runtime and defaults are unchanged by this documentation revision.
+- Fixed order-dependent keyword post targets: caching a valid post no longer allows a later link with a mismatched thread ID, and rejecting a mismatched link no longer suppresses a later valid link to the same post.
+- Applied the same per-target thread/approved-status checks to keyword redirect decisions, while retaining the ten-distinct-post lookup budget, negative caching and guest forum permission gates.
+- Added 13 focused regressions for both link orders, cached redirect decisions, native pretty targets, unapproved/private/missing posts, lookup limits and keyword URLs off. No database migration or indexing-default change is required.
+- Verification passed 28 PHP syntax checks, 285 main regressions, 23 ACP list checks and 32 ACP mutation cases on PHP 8.3, 8.4 and 8.5. PHP 8.5 used its built-in extensions without the local INI; no installed-forum or production deployment test is claimed for this patch.
+
+## 1.0.1 - 2026-10-05
+
+- Added literal URL search, response/state filters, allowlisted sorting and 50-row pagination to Redirect Manager. The 404 Monitor adds URL search, hit/date/path sorting and the same pagination instead of hiding records beyond a fixed display cap.
+- Kept search/filter state in page links, added deterministic sorting and clamped out-of-range pages before querying. The list helper is ACP-only and adds no frontend query or database migration.
+- Added optional Nginx snippets for domain-root and subfolder installations, covering clean sitemap/robots aliases, all six keyword route forms and an existing-file-safe fallback. Incoming keyword query parameters cannot override route IDs or actions; subfolder fallback leaves outside paths alone.
+- Made ACP server instructions distinguish Apache-style rewrites, Nginx and unknown/proxied servers. Expanded installation, renamed-admin-directory, Nginx merge/reload and list usage documentation.
+- Kept the native configuration menu accessible below VonSEO content on phone-sized screens instead of squeezing the list beside a fixed-width sidebar.
+- Added contributor verification tools and pinned GitHub Actions jobs for PHP 7.1-8.5, MySQL/MariaDB and public ZIP checks. Workflow execution and a full installed Nginx/MyBB deployment remain separate from local test evidence.
+- Corrected two contributor-test portability defects found during review: child tests retain configured PHP extensions, and the informational benchmark uses a fallback when PHP 7.1/7.2 have no high-resolution timer. This does not change the plugin's frontend behavior.
+- Local verification passes on PHP 8.3, 8.4 and 8.5: 28 PHP syntax checks, 272 main regressions, 23 ACP list checks and 32 ACP mutation cases per runtime. Additional checks passed 14 real MySQL list cases and 73 Nginx root/subfolder fixture routes. The installed MyBB playground confirmed list controls, 390px layout, a data-preserving deactivate/reactivate upgrade at schema 5 and 21 guest HTTP checks.
+
 ## 1.0.0 - 2026-09-28
 
 - Promoted the stabilized VonSEO feature set to 1.0: server-rendered canonical/meta/social/schema output, guest-safe forum/thread/announcement/calendar/event discovery, exact redirects, privacy-aware 404 handling, queued IndexNow delivery and opt-in reversible keyword URLs.
@@ -11,7 +30,7 @@
 - Added administrator audit entries for redirect CSV imports and individual 404 clears, removed duplicate Redirects PHPDoc blocks and refreshed the stale database-support comment.
 - Removed local SQL/database snapshots and temporary session data from the source tree. The public package remains a fixed 26-file allowlist containing no tests, internal progress documents, local backups or credentials.
 - Keyword URLs remain disabled on fresh installs. Existing third-party custom URL schemes require a site-specific migration, and Nginx/LiteSpeed require equivalent server rules.
-- Source passes 272/272 self-contained tests, 32/32 ACP method/token/permission cases and lint of all repository PHP files on PHP 8.3-8.5. The local PHP 8.4/MySQL playground retains the earlier 21-case guest HTTP and focused 404 proof; the final lifecycle and quote-bearing Site Details checks are covered by the included regression suite.
+- Source passes 272/272 self-contained tests, 32/32 ACP method/token/permission cases and lint of all repository PHP files on PHP 8.3-8.5. The local PHP 8.4/MySQL playground retains the earlier 21-case guest HTTP and focused 404 proof, with focused lifecycle and quote-bearing Site Details regression checks.
 - A late manual audit corrected the earlier pre-release conclusion: it found the authenticated ACP settings-write issue, the overly broad permission and the unsupported-database lifecycle defect above. All supplied findings are patched and regression-covered; the earlier whole-tree scan remains historical evidence rather than a claim that these later findings never existed.
 
 ## 0.7.0 - 2026-09-27

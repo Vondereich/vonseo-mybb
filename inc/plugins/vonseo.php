@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.0.0
+ * @version 1.0.2
  */
 
 if(!defined('IN_MYBB'))
@@ -305,7 +305,7 @@ function vonseo_install()
         array(
             'name'        => 'vonseo_keyword_urls',
             'title'       => 'Keyword Thread and Forum URLs (Experimental)',
-            'description' => 'Use ID-based keyword URLs for public forum/thread canonical links, navigation, exact post targets, stock thread actions, sitemaps and IndexNow. Requires the optional Apache keyword rewrite rules in extras/htaccess-vonseo.txt. Test direct visits on your board before enabling; filtered/display-mode links remain native.',
+            'description' => 'Use ID-based keyword URLs for public forum/thread canonical links, navigation, exact post targets, stock thread actions, sitemaps and IndexNow. Requires the matching Apache-style or Nginx keyword rules supplied in extras/. Test direct visits on your board before enabling; filtered/display-mode links remain native.',
             'optionscode' => 'onoff',
             'value'       => '0',
             'disporder'   => 26

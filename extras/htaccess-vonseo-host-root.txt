@@ -1,0 +1,27 @@
+# VonSEO host-root robots example for MyBB installed in /forum/.
+# This is NOT a complete replacement for an existing .htaccess.
+# Use at the WEB-DOCUMENT ROOT (for example public_html/.htaccess),
+# NOT at the MyBB root (public_html/forum/.htaccess).
+# For a domain-root MyBB board, use block A of htaccess-vonseo.txt instead.
+#
+# Only use if the site owner wants VonSEO to serve robots rules for this host.
+# If a robots.txt file or another CMS already owns /robots.txt, preserve it and
+# merge appropriate forum directives/sitemap lines as explained in README.md.
+# Do not add a competing rewrite over that existing owner.
+#
+# Back up first, outside the web root. Replace forum/ below with the actual
+# board directory, for example community/ or community/board/.
+# Requires mod_rewrite and permitted rewrite overrides in the host directory.
+# If a rewrite section already exists, copy ONLY the RewriteRule into it,
+# after RewriteEngine On and before the parent application's catch-all.
+# If no root .htaccess exists, this minimal block may be used to create one.
+# No other parent-site path is sent to MyBB. Incoming query parameters are
+# replaced by the fixed robots action; do not add QSA to this rule.
+# Test /robots.txt: expect HTTP 200 with plain text, not HTML or a redirect.
+# The ACP subfolder reminder may remain; it does not probe this URL.
+# For rollback, restore the backup or remove only the block you added.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^robots\.txt$ forum/misc.php?action=vonseo_robots [L]
+</IfModule>

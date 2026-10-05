@@ -39,6 +39,7 @@ function get_post_link(int $pid, int $tid = 0)
 
 function get_post(int $pid)
 {
+    $GLOBALS['test_get_post_count'] = isset($GLOBALS['test_get_post_count']) ? $GLOBALS['test_get_post_count'] + 1 : 1;
     return isset($GLOBALS['raw_post_cache'][$pid]) ? $GLOBALS['raw_post_cache'][$pid] : false;
 }
 
@@ -1634,7 +1635,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.0.0', 'Source plugin metadata matches the 1.0.0 release');
+$t->assert(vonseo_info()['version'] === '1.0.2', 'Source plugin metadata matches the 1.0.2 release');
 $pluginSource = file_get_contents(MYBB_ROOT.'inc/plugins/vonseo.php');
 $t->assert(strpos($pluginSource, "add_hook('postbit_announcement', 'vonseo_capture_guest_announcement'") !== false,
     'Announcement text capture is registered on MyBB postbit_announcement');
@@ -2108,6 +2109,86 @@ $t->assert(strpos($rewritten, 'href="showthread.php?mode=threaded&amp;tid=10&amp
     strpos($rewritten, 'href="showthread.php?tid=13"') !== false &&
     strpos($rewritten, 'href="https://attacker.example/forum/showthread.php?tid=10"') !== false, 'Display-mode, post-only, hidden and external links remain untouched');
 $t->assert($keyword->rewriteHtml($navHtml, 'search.php') === $navHtml, 'Unreviewed MyBB page contexts are not rewritten');
+
+// Post eligibility must depend on both IDs, not the first link using a PID.
+$GLOBALS['raw_thread_cache'][7001] = array('tid' => 7001, 'fid' => 2, 'subject' => 'Thread A', 'visible' => 1, 'closed' => '');
+$GLOBALS['raw_thread_cache'][7002] = array('tid' => 7002, 'fid' => 2, 'subject' => 'Thread B', 'visible' => 1, 'closed' => '');
+$GLOBALS['raw_thread_cache'][7003] = array('tid' => 7003, 'fid' => 3, 'subject' => 'Private Thread', 'visible' => 1, 'closed' => '');
+$GLOBALS['raw_post_cache'][8001] = array('pid' => 8001, 'tid' => 7001, 'visible' => 1);
+$GLOBALS['raw_post_cache'][8002] = array('pid' => 8002, 'tid' => 7001, 'visible' => 0);
+$GLOBALS['raw_post_cache'][8004] = array('pid' => 8004);
+$validPostLink = '<a href="showthread.php?tid=7001&amp;pid=8001#pid8001">Valid</a>';
+$mismatchedPostLink = '<a href="showthread.php?tid=7002&amp;pid=8001#pid8001">Mismatched</a>';
+$validKeywordPost = '<a href="https://example.com/forum/t-7001-thread-a--post-8001#pid8001">Valid</a>';
+$forwardPostWorker = new VonSEO_Keyword($url);
+$GLOBALS['test_get_post_count'] = 0;
+$t->assert($forwardPostWorker->rewriteHtml($validPostLink.$mismatchedPostLink, 'index.php') === $validKeywordPost.$mismatchedPostLink,
+    'A cached valid post cannot rewrite a later mismatched thread target');
+$t->assert($GLOBALS['test_get_post_count'] === 1, 'Valid-first post targets share one lookup per PID');
+$reversePostWorker = new VonSEO_Keyword($url);
+$GLOBALS['test_get_post_count'] = 0;
+$t->assert($reversePostWorker->rewriteHtml($mismatchedPostLink.$validPostLink, 'index.php') === $mismatchedPostLink.$validKeywordPost,
+    'A rejected thread-post mismatch cannot poison a later valid target');
+$t->assert($GLOBALS['test_get_post_count'] === 1, 'Mismatch-first post targets share one lookup per PID');
+$t->assert($forwardPostWorker->redirectDecision('/forum/showthread.php?tid=7002&pid=8001', 'GET', 'showthread.php',
+    $GLOBALS['raw_thread_cache'][7002], $publicForum) === false,
+    'Redirect decisions recheck thread identity after a rendered post cache hit');
+$redirectPostWorker = new VonSEO_Keyword($url);
+$redirectPostWorker->redirectDecision('/forum/showthread.php?tid=7002&pid=8001', 'GET', 'showthread.php',
+    $GLOBALS['raw_thread_cache'][7002], $publicForum);
+$t->assert($redirectPostWorker->redirectDecision('/forum/showthread.php?tid=7001&pid=8001', 'GET', 'showthread.php',
+    $GLOBALS['raw_thread_cache'][7001], $publicForum) === array(
+        'location' => 'https://example.com/forum/t-7001-thread-a--post-8001#pid8001', 'status' => 302),
+    'A rejected redirect target does not suppress the matching post redirect');
+$t->assert($redirectPostWorker->redirectDecision('/forum/thread-7002-post-8001.html', 'GET', 'showthread.php',
+    $GLOBALS['raw_thread_cache'][7002], $publicForum) === false,
+    'Cached post eligibility also rejects a mismatched native pretty target');
+$unapprovedPostLinks = '<a href="showthread.php?tid=7001&amp;pid=8002">Pending</a>'
+    .'<a href="showthread.php?tid=7002&amp;pid=8002">Pending mismatch</a>';
+$t->assert((new VonSEO_Keyword($url))->rewriteHtml($unapprovedPostLinks, 'index.php') === $unapprovedPostLinks,
+    'Unapproved post targets remain native across repeated cache hits');
+$privatePostLink = '<a href="showthread.php?tid=7003&amp;pid=8001">Private</a>';
+$t->assert($forwardPostWorker->rewriteHtml($privatePostLink, 'index.php') === $privatePostLink,
+    'An approved cached post cannot bypass a private forum gate');
+$missingPostLinks = '<a href="showthread.php?tid=7001&amp;pid=8004">Malformed</a>'
+    .'<a href="showthread.php?tid=7002&amp;pid=8004">Malformed mismatch</a>'
+    .'<a href="showthread.php?tid=7001&amp;pid=8999">Missing</a>'
+    .'<a href="showthread.php?tid=7002&amp;pid=8999">Missing mismatch</a>';
+$GLOBALS['test_get_post_count'] = 0;
+$t->assert((new VonSEO_Keyword($url))->rewriteHtml($missingPostLinks, 'index.php') === $missingPostLinks &&
+    $GLOBALS['test_get_post_count'] === 2, 'Missing and malformed posts fail closed and reuse negative cache entries');
+$boundedPostLinks = '';
+for($lookupPid = 8005; $lookupPid <= 8015; ++$lookupPid)
+{
+    $GLOBALS['raw_post_cache'][$lookupPid] = array('pid' => $lookupPid, 'tid' => 7001, 'visible' => 1);
+    $boundedPostLinks .= '<a href="showthread.php?tid=7001&amp;pid='.$lookupPid.'">Post</a>';
+}
+$boundedPostWorker = new VonSEO_Keyword($url);
+$GLOBALS['test_get_post_count'] = 0;
+$boundedPostOutput = $boundedPostWorker->rewriteHtml($boundedPostLinks, 'index.php');
+$t->assert($GLOBALS['test_get_post_count'] === 10 &&
+    strpos($boundedPostOutput, 't-7001-thread-a--post-8014#pid8014') !== false &&
+    strpos($boundedPostOutput, 'href="showthread.php?tid=7001&amp;pid=8015"') !== false,
+    'Post lookup budget stays bounded at ten distinct PIDs');
+$cachedBoundedLink = '<a href="showthread.php?tid=7001&amp;pid=8005">Cached</a>';
+$t->assert($boundedPostWorker->rewriteHtml($cachedBoundedLink, 'index.php') ===
+    '<a href="https://example.com/forum/t-7001-thread-a--post-8005#pid8005">Cached</a>' &&
+    $GLOBALS['test_get_post_count'] === 10, 'Cached valid targets remain usable after the post lookup budget is exhausted');
+$GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
+$GLOBALS['test_get_post_count'] = 0;
+$t->assert((new VonSEO_Keyword($url))->rewriteHtml($validPostLink.$mismatchedPostLink, 'index.php') ===
+    $validPostLink.$mismatchedPostLink && $GLOBALS['test_get_post_count'] === 0,
+    'Keyword URLs off preserves both post targets without post lookups');
+$GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '1';
+foreach(array(7001, 7002, 7003) as $fixtureTid)
+{
+    unset($GLOBALS['raw_thread_cache'][$fixtureTid]);
+}
+foreach(array_merge(array(8001, 8002, 8004), range(8005, 8015)) as $fixturePid)
+{
+    unset($GLOBALS['raw_post_cache'][$fixturePid]);
+}
+
 $lookupHtml = '';
 for($lookupTid = 100; $lookupTid < 200; $lookupTid++)
 {
@@ -2120,12 +2201,14 @@ $t->assert($GLOBALS['test_get_thread_count'] <= 10, 'Keyword fallback thread loo
 $benchmarkKeywordRender = function($enabled, $html, $iterations) use ($url) {
     $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = $enabled ? '1' : '0';
     $worker = new VonSEO_Keyword($url);
-    $start = hrtime(true);
+    // PHP 7.1/7.2 have no hrtime; this informational benchmark also runs there.
+    $highResolution = function_exists('hrtime');
+    $start = $highResolution ? hrtime(true) : microtime(true);
     for($i = 0; $i < $iterations; $i++)
     {
         $worker->rewriteHtml($html, 'index.php');
     }
-    return (hrtime(true) - $start) / 1000000;
+    return $highResolution ? (hrtime(true) - $start) / 1000000 : (microtime(true) - $start) * 1000;
 };
 $benchmarkIterations = 100;
 $benchmarkDenseHtml = $navHtml.$lookupHtml.$lookupHtml;

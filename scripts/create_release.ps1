@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.0'
+    [string]$Version = '1.0.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +28,7 @@ foreach($relative in @('README.md', 'CHANGELOG.md'))
 $files = @(
     'admin/modules/config/vonseo.php',
     'inc/plugins/vonseo.php',
+    'inc/plugins/vonseo/AdminList.php',
     'inc/plugins/vonseo/Context.php',
     'inc/plugins/vonseo/Core.php',
     'inc/plugins/vonseo/Errors.php',
@@ -48,6 +49,9 @@ $files = @(
     'inc/languages/english/admin/vonseo.lang.php',
     'inc/languages/english/admin/index.html',
     'extras/htaccess-vonseo.txt',
+    'extras/htaccess-vonseo-host-root.txt',
+    'extras/nginx-vonseo.conf',
+    'extras/nginx-vonseo-subfolder.conf',
     'README.md',
     'CHANGELOG.md',
     'LICENSE.txt',

@@ -41,7 +41,9 @@ VonSEO redirect lookup
 
 The redirect table uses a SHA-256 source hash for exact lookup and keeps the original source path for display. Runtime and save-time loop guards are both applied.
 
-Unknown pretty paths can optionally be routed into MyBB through the Apache fallback rule in `extras/htaccess-vonseo.txt`. The rule must be placed after normal MyBB rewrite rules.
+Unknown pretty paths can optionally be routed into MyBB through the matching Apache-style or Nginx fallback in `extras/`. Keep native MyBB routes ahead of the fallback. The Nginx subfolder example does not route paths outside the board directory into MyBB.
+
+ACP lists load `VonSEO_AdminList` only in the admin module. It allowlists query columns/directions and status/state filters, escapes literal substring searches, counts matching rows and fetches a bounded 50-row page with a unique tie-breaker. Requested pages are clamped before calculating an offset. There is no new frontend query or schema change for this list UI.
 
 ## Error layer
 
@@ -112,4 +114,4 @@ All schema URLs come from the same URL resolver as canonical and Open Graph.
 - `misc.php?action=vonseo_404`
 - internal fallback: `misc.php?action=vonseo_route`
 
-The sitemap is an index that points to forum, chunked thread, announcement, calendar and event sitemaps. Default chunk size is 1000 URLs and can be configured up to 50000. Profile sitemaps are not included in 1.0.0.
+The sitemap is an index that points to forum, chunked thread, announcement, calendar and event sitemaps. Default chunk size is 1000 URLs and can be configured up to 50000. Profile sitemaps are not included in 1.0.x.

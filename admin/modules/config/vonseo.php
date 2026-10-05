@@ -22,6 +22,8 @@ else
 /** @var MyLanguage $lang */
 global $page, $mybb, $db, $lang;
 
+require_once MYBB_ROOT.'inc/plugins/vonseo/AdminList.php';
+
 $page->add_breadcrumb_item('VonSEO', 'index.php?module=config-vonseo');
 
 $action = $mybb->get_input('action');
@@ -114,6 +116,12 @@ $vonseoAdminCss = <<<'CSS'
 .vs-preview-links a{font-weight:600}
 .vs-empty{padding:18px!important;color:#697386;text-align:center}
 .vs-limit-note{margin:-8px 0 18px;color:#7a8493;font-size:11px;text-align:right}
+.vs-list-filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin:16px 0;padding:12px;background:#f6f7f9;border:1px solid #d9dee7}
+.vs-list-filters label{display:flex;flex-direction:column;gap:5px;font-weight:600}
+.vs-list-filters label:first-of-type{flex:1 1 220px}
+.vs-list-filters input,.vs-list-filters select{box-sizing:border-box;min-height:30px;max-width:100%;margin:0}
+.vs-list-filters input{width:100%}
+.vs-list-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 20px;color:#5d6877}
 .vs-endpoint{font-family:Consolas,"Liberation Mono",monospace;font-size:11px;overflow-wrap:anywhere}
 .vs-button-link{display:inline-block;padding:5px 9px;border:1px solid #cbd2dc;background:#fff;color:#405574;font-weight:600;text-decoration:none}
 .vs-button-link:hover{border-color:#9facc0;background:#f5f7fa;color:#273b59;text-decoration:none}
@@ -146,6 +154,9 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-notfound td:nth-child(5):before{content:"Controls"}
 }
 @media(max-width:680px){.vs-page-header{align-items:stretch;flex-direction:column;padding:16px}.vs-actions{justify-content:flex-start}.vs-summary{grid-template-columns:1fr 1fr}.vs-summary-card strong{font-size:19px}}
+/* Only VonSEO pages load these overrides. Keep the native menu accessible
+   below the content instead of consuming 200px of a phone-sized viewport. */
+@media(max-width:680px){#page{display:flex;flex-direction:column}#content{margin-left:0;padding:10px;min-width:0}#left_menu{float:none;width:100%;order:1}#left_menu ul.menu{display:flex;flex-wrap:wrap;gap:4px 12px}#left_menu ul.menu li{flex:1 1 140px}}
 @media(max-width:420px){.vs-summary,.vs-summary.vs-three{grid-template-columns:1fr}.vs-setup-head{align-items:flex-start;flex-direction:column}.vs-table-cards tbody td{grid-template-columns:minmax(85px,34%) minmax(0,1fr)}}
 </style>
 CSS;
@@ -183,6 +194,27 @@ function vonseo_admin_tabs($active)
 
     $page->output_nav_tabs($tabs, $active);
 }
+
+/** @return array */
+function vonseo_admin_server_help()
+{
+    $software = isset($_SERVER['SERVER_SOFTWARE']) ? strtolower((string)$_SERVER['SERVER_SOFTWARE']) : '';
+    if(strpos($software, 'nginx') !== false)
+    {
+        return array('name' => 'Nginx', 'apache' => false, 'help' => 'Use extras/nginx-vonseo.conf for a root board or extras/nginx-vonseo-subfolder.conf for a subfolder. Merge the snippet into the board server configuration, run nginx -t, then reload Nginx.');
+    }
+    if(strpos($software, 'litespeed') !== false)
+    {
+        return array('name' => 'LiteSpeed', 'apache' => true, 'help' => 'Use the Apache-style rules in extras/htaccess-vonseo.txt. LiteSpeed Enterprise can read .htaccess; OpenLiteSpeed requires rewrite loading to be enabled in the virtual host. Verify direct routes on your host.');
+    }
+    if(strpos($software, 'apache') !== false)
+    {
+        return array('name' => 'Apache', 'apache' => true, 'help' => 'Merge the six keyword rules from extras/htaccess-vonseo.txt into the MyBB-root .htaccess, before the optional fallback rule.');
+    }
+    return array('name' => 'Unknown or proxied server', 'apache' => false, 'help' => 'Choose extras/htaccess-vonseo.txt for Apache-style rewrites or the matching extras/nginx-vonseo*.conf snippet for Nginx. Ask your host which server handles public routes.');
+}
+
+$serverHelp = vonseo_admin_server_help();
 
 if($action === 'site_details_save')
 {
@@ -576,6 +608,8 @@ if($action === 'redirect_add' || $action === 'redirect_edit')
 
 if($action === 'redirects')
 {
+    $list = new VonSEO_AdminList('redirects', $mybb->input);
+    $listRows = $list->rows();
     $redirectCount = 0;
     $enabledRedirectCount = 0;
     $redirectHits = 0;
@@ -613,51 +647,48 @@ if($action === 'redirects')
     echo '<div class="vs-summary-card"><strong>'.my_number_format($redirectHits).'</strong><span>Total matched requests</span></div>';
     echo '</div>';
 
+    echo $list->filters();
     $table = new Table;
-    $table->construct_header('Source');
+    $table->construct_header($list->heading('Source', 'path'));
     $table->construct_header('Destination / Result');
     $table->construct_header('Response', array('class' => 'align_center', 'width' => 120));
-    $table->construct_header('Hits', array('class' => 'align_center', 'width' => 80));
-    $table->construct_header('Last Hit', array('class' => 'align_center', 'width' => 150));
+    $table->construct_header($list->heading('Hits', 'hits'), array('class' => 'align_center', 'width' => 80));
+    $table->construct_header($list->heading('Last Hit', 'last_hit'), array('class' => 'align_center', 'width' => 150));
     $table->construct_header('Controls', array('class' => 'align_center', 'width' => 140));
 
-    if($db->table_exists('vonseo_redirects'))
+    foreach($listRows as $rule)
     {
-        $query = $db->simple_select('vonseo_redirects', '*', '', array('order_by' => 'rid', 'order_dir' => 'DESC', 'limit' => 200));
-        while($rule = $db->fetch_array($query))
-        {
-            $target = (int)$rule['status_code'] === 410
-                ? '<span class="vs-subtle">No destination: resource is gone</span>'
-                : '<span class="vs-code">'.htmlspecialchars_uni($rule['target_url']).'</span>';
-            $stateClass = $rule['enabled'] ? 'is-on' : 'is-off';
-            $stateLabel = $rule['enabled'] ? 'Enabled' : 'Disabled';
-            $status = '<strong>'.(int)$rule['status_code'].'</strong><br /><span class="vs-status '.$stateClass.'">'.$stateLabel.'</span>';
-            $last = $rule['last_hit'] ? my_date('relative', $rule['last_hit']) : '<span class="vs-subtle">Never</span>';
-            $table->construct_cell('<span class="vs-code"><strong>'.htmlspecialchars_uni($rule['source_path']).'</strong></span>');
-            $table->construct_cell($target);
-            $table->construct_cell($status, array('class' => 'align_center'));
-            $table->construct_cell(my_number_format($rule['hits']), array('class' => 'align_center'));
-            $table->construct_cell($last, array('class' => 'align_center'));
-            $controls = '<span class="vs-row-actions"><a href="index.php?module=config-vonseo&amp;action=redirect_edit&amp;rid='.(int)$rule['rid'].'">Edit</a>'
-                .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=redirect_delete&amp;rid='.(int)$rule['rid'].'">Delete</a></span>';
-            $table->construct_cell($controls, array('class' => 'align_center'));
-            $table->construct_row();
-        }
+        $target = (int)$rule['status_code'] === 410
+            ? '<span class="vs-subtle">No destination: resource is gone</span>'
+            : '<span class="vs-code">'.htmlspecialchars_uni($rule['target_url']).'</span>';
+        $stateClass = $rule['enabled'] ? 'is-on' : 'is-off';
+        $stateLabel = $rule['enabled'] ? 'Enabled' : 'Disabled';
+        $status = '<strong>'.(int)$rule['status_code'].'</strong><br /><span class="vs-status '.$stateClass.'">'.$stateLabel.'</span>';
+        $last = $rule['last_hit'] ? my_date('relative', $rule['last_hit']) : '<span class="vs-subtle">Never</span>';
+        $table->construct_cell('<span class="vs-code"><strong>'.htmlspecialchars_uni($rule['source_path']).'</strong></span>');
+        $table->construct_cell($target);
+        $table->construct_cell($status, array('class' => 'align_center'));
+        $table->construct_cell(my_number_format($rule['hits']), array('class' => 'align_center'));
+        $table->construct_cell($last, array('class' => 'align_center'));
+        $controls = '<span class="vs-row-actions"><a href="index.php?module=config-vonseo&amp;action=redirect_edit&amp;rid='.(int)$rule['rid'].'">Edit</a>'
+            .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=redirect_delete&amp;rid='.(int)$rule['rid'].'">Delete</a></span>';
+        $table->construct_cell($controls, array('class' => 'align_center'));
+        $table->construct_row();
     }
 
     if($table->num_rows() === 0)
     {
-        $table->construct_cell('<div class="vs-empty"><strong>No redirect rules yet.</strong><br />Create a rule manually or import an existing CSV file.</div>', array('colspan' => 6));
+        $empty = $redirectCount > 0
+            ? 'No redirect rules match these filters. Try another URL or reset the filters.'
+            : 'No redirect rules yet. Create a rule manually or import an existing CSV file.';
+        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 6));
         $table->construct_row();
     }
 
     echo '<div class="vs-table-wrap vs-table-cards vs-table-redirects">';
     $table->output('Redirect rules');
     echo '</div>';
-    if($redirectCount > 200)
-    {
-        echo '<p class="vs-limit-note">Showing the 200 newest rules.</p>';
-    }
+    echo $list->pagination();
     echo '</div>';
     $page->output_footer();
     exit;
@@ -665,6 +696,8 @@ if($action === 'redirects')
 
 if($action === 'notfound')
 {
+    $list = new VonSEO_AdminList('notfound', $mybb->input);
+    $listRows = $list->rows();
     $notFoundCount = 0;
     $notFoundHits = 0;
     $topPathHits = 0;
@@ -701,46 +734,43 @@ if($action === 'notfound')
     echo '</div>';
     echo '<div class="vs-notice">Only missing URL paths, route-specific public identifiers and aggregate counts are stored. Unknown, tracking and secret-bearing query fields are discarded; visitor IP addresses are not recorded.</div>';
 
+    echo $list->filters();
     $table = new Table;
-    $table->construct_header('Missing URL');
-    $table->construct_header('Hits', array('class' => 'align_center', 'width' => 90));
-    $table->construct_header('First Seen', array('class' => 'align_center', 'width' => 160));
-    $table->construct_header('Last Seen', array('class' => 'align_center', 'width' => 160));
+    $table->construct_header($list->heading('Missing URL', 'path'));
+    $table->construct_header($list->heading('Hits', 'hits'), array('class' => 'align_center', 'width' => 90));
+    $table->construct_header($list->heading('First Seen', 'first_seen'), array('class' => 'align_center', 'width' => 160));
+    $table->construct_header($list->heading('Last Seen', 'last_seen'), array('class' => 'align_center', 'width' => 160));
     $table->construct_header('Controls', array('class' => 'align_center', 'width' => 180));
 
-    if($db->table_exists('vonseo_404_log'))
+    foreach($listRows as $row)
     {
-        $query = $db->simple_select('vonseo_404_log', '*', '', array('order_by' => 'hits', 'order_dir' => 'DESC', 'limit' => 250));
-        while($row = $db->fetch_array($query))
-        {
-            $path = htmlspecialchars_uni($row['path']);
-            $table->construct_cell('<span class="vs-code">'.$path.'</span>');
-            $table->construct_cell(my_number_format($row['hits']), array('class' => 'align_center'));
-            $table->construct_cell(my_date('relative', $row['first_seen']), array('class' => 'align_center'));
-            $table->construct_cell(my_date('relative', $row['last_seen']), array('class' => 'align_center'));
-            $create = strpos((string)$row['path'], 'REDACTED') === false
-                ? '<a href="index.php?module=config-vonseo&amp;action=redirect_add&amp;source='.urlencode($row['path']).'">Create redirect</a>'
-                : '<span title="Legacy redacted rows cannot form a safe redirect source.">Legacy row</span>';
-            $controls = '<span class="vs-row-actions">'.$create
-                .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=notfound_clear&amp;hash='.htmlspecialchars_uni($row['path_hash']).'">Clear</a></span>';
-            $table->construct_cell($controls, array('class' => 'align_center'));
-            $table->construct_row();
-        }
+        $path = htmlspecialchars_uni($row['path']);
+        $table->construct_cell('<span class="vs-code">'.$path.'</span>');
+        $table->construct_cell(my_number_format($row['hits']), array('class' => 'align_center'));
+        $table->construct_cell(my_date('relative', $row['first_seen']), array('class' => 'align_center'));
+        $table->construct_cell(my_date('relative', $row['last_seen']), array('class' => 'align_center'));
+        $create = strpos((string)$row['path'], 'REDACTED') === false
+            ? '<a href="index.php?module=config-vonseo&amp;action=redirect_add&amp;source='.urlencode($row['path']).'">Create redirect</a>'
+            : '<span title="Legacy redacted rows cannot form a safe redirect source.">Legacy row</span>';
+        $controls = '<span class="vs-row-actions">'.$create
+            .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=notfound_clear&amp;hash='.htmlspecialchars_uni($row['path_hash']).'">Clear</a></span>';
+        $table->construct_cell($controls, array('class' => 'align_center'));
+        $table->construct_row();
     }
 
     if($table->num_rows() === 0)
     {
-        $table->construct_cell('<div class="vs-empty"><strong>No missing URLs recorded.</strong><br />New 404 paths will appear here when VonSEO and monitoring are enabled.</div>', array('colspan' => 5));
+        $empty = $notFoundCount > 0
+            ? 'No missing URLs match this search. Try another URL or reset the filters.'
+            : 'No missing URLs recorded. New 404 paths will appear here when VonSEO and monitoring are enabled.';
+        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 5));
         $table->construct_row();
     }
 
     echo '<div class="vs-table-wrap vs-table-cards vs-table-notfound">';
-    $table->output('Most requested missing paths');
+    $table->output('Missing paths');
     echo '</div>';
-    if($notFoundCount > 250)
-    {
-        echo '<p class="vs-limit-note">Showing the 250 paths with the most hits.</p>';
-    }
+    echo $list->pagination();
     echo '</div>';
     $page->output_footer();
     exit;
@@ -764,7 +794,8 @@ if($action === 'guide')
     echo '<p>VonSEO automatically adds descriptions, canonical links, social tags and structured data to eligible public pages. No per-thread form is needed.</p>';
     echo '<p><a href="index.php?module=config-vonseo">Review SEO status on the Overview page</a></p></div></div>';
     echo '<div class="vs-guide-step"><span class="vs-guide-number">2</span><div><h3>Choose whether to use keyword URLs</h3>';
-    echo '<p>This is optional. If you want readable forum, thread, exact-post and stock action links, add the six Apache rules from <code>extras/htaccess-vonseo.txt</code>, test direct visits, then turn on Keyword URLs. Leave the setting off to keep MyBB links.</p>';
+    echo '<p>This is optional. Add the matching server rules, test direct visits, then turn on Keyword URLs to use readable forum, thread, exact-post and stock action links.</p>';
+    echo '<p><strong>'.htmlspecialchars_uni($serverHelp['name']).':</strong> '.htmlspecialchars_uni($serverHelp['help']).'</p>';
     if($guideGid > 0)
     {
         echo '<p><a href="index.php?module=config-settings&amp;action=change&amp;gid='.$guideGid.'#row_setting_vonseo_keyword_urls">Open keyword URL setting</a></p>';
@@ -777,7 +808,7 @@ if($action === 'guide')
     echo '<p>Redirects repair old or moved links. The 404 monitor shows missing paths. IndexNow is optional and needs its own key and settings; it is not required for basic SEO.</p>';
     echo '<p><a href="index.php?module=config-vonseo&amp;action=redirects">Manage redirects</a> | <a href="index.php?module=config-vonseo&amp;action=notfound">Review 404s</a></p></div></div>';
     echo '</div>';
-    echo '<div class="vs-notice"><strong>Rolling back keyword URLs?</strong> Turn the keyword setting off, but keep the six Apache rules while old keyword links may still be shared. Uninstalling VonSEO also removes its redirect, 404 and IndexNow queue data.</div>';
+    echo '<div class="vs-notice"><strong>Rolling back keyword URLs?</strong> Turn the keyword setting off, but keep the server rules while old keyword links may still be shared. Uninstalling VonSEO also removes its redirect, 404 and IndexNow queue data.</div>';
     echo '</div>';
     $page->output_footer();
     exit;
@@ -829,7 +860,7 @@ $indexNowWorkerStatus = isset($operationalState['indexnow_status']) ? (string)$o
 $htaccessState = false;
 $keywordRuleCount = 0;
 $htaccessNote = 'Optional router for unknown custom paths. Keyword forum/thread URLs do not need it.';
-if(is_readable(MYBB_ROOT.'.htaccess'))
+if($serverHelp['apache'] && is_readable(MYBB_ROOT.'.htaccess'))
 {
     $htaccess = @file_get_contents(MYBB_ROOT.'.htaccess');
     if(is_string($htaccess))
@@ -979,13 +1010,13 @@ if(!empty($attention))
     echo '</ul></div>';
 }
 
-echo '<div class="vs-setup'.($keywordSettingEnabled && $keywordRuleCount < 6 ? ' is-warning' : '').'">';
+echo '<div class="vs-setup'.($keywordSettingEnabled && $serverHelp['apache'] && $keywordRuleCount < 6 ? ' is-warning' : '').'">';
 echo '<div class="vs-setup-head"><h3>Keyword URLs for forums and threads</h3>';
 echo '<span class="vs-status '.($keywordUrlsActive ? 'is-on' : ($keywordSettingEnabled ? 'is-warn' : 'is-neutral')).'">'
     .($keywordUrlsActive ? 'On' : ($keywordSettingEnabled ? 'Paused' : 'Off')).'</span></div>';
 if($keywordSettingEnabled)
 {
-    if($keywordRuleCount < 6)
+    if($serverHelp['apache'] && $keywordRuleCount < 6)
     {
         echo '<p>Check the Apache rules before sharing keyword links. Equivalent rules may be configured elsewhere.</p>';
     }
@@ -1003,11 +1034,15 @@ if($gid > 0)
     echo '<div class="vs-setup-actions"><a class="button" href="index.php?module=config-settings&amp;action=change&amp;gid='.$gid.'#row_setting_vonseo_keyword_urls">Change keyword URL setting</a></div>';
 }
 echo '<details class="vs-setup-help"><summary>Setup and rollback help</summary>';
-echo '<p><strong>Apache check:</strong> '.$keywordRuleCount.'/6 keyword patterns found in the root .htaccess. Equivalent rules may be configured elsewhere.</p>';
-echo '<ol><li>Add the six keyword rules from the ZIP <code>extras/htaccess-vonseo.txt</code> to the forum root .htaccess.</li>';
+echo '<p><strong>'.htmlspecialchars_uni($serverHelp['name']).':</strong> '.htmlspecialchars_uni($serverHelp['help']).'</p>';
+if($serverHelp['apache'])
+{
+    echo '<p><strong>File check:</strong> '.$keywordRuleCount.'/6 keyword patterns found in the root .htaccess. Rules may also be configured by the host.</p>';
+}
+echo '<ol><li>Add the keyword rules for your server and installation path.</li>';
 echo '<li>With this setting Off, a direct visit to a public <code>t-ID-topic</code> and <code>f-ID-forum</code> should temporarily redirect to a MyBB URL. Then turn it On and retest.</li>';
-echo '<li>To roll back, turn the setting Off but keep the six rules so shared keyword links continue to redirect.</li></ol>';
-echo '<p>A file check cannot prove Apache routing; test a direct visit on your server.</p></details>';
+echo '<li>To roll back, turn the setting Off but keep the rules so shared keyword links continue to redirect.</li></ol>';
+echo '<p>A file check cannot prove routing; test a direct visit on your server.</p></details>';
 echo '</div>';
 
 echo '<details class="vs-details"><summary>Technical details: module status, redirects and endpoints</summary>';
@@ -1024,7 +1059,7 @@ $modules = array(
     array('Redirect engine', $engineEnabled && !empty($mybb->settings['vonseo_redirects_enabled']), my_number_format($redirectCount).' rules configured.'),
     array('404 status guard', $engineEnabled && !empty($mybb->settings['vonseo_404_enabled']), 'Returns a 404 status for missing content.'),
     array('404 monitor', $engineEnabled && !empty($mybb->settings['vonseo_404_monitor']), 'Tracks missing paths and aggregate hit counts.'),
-    array('XML sitemap', $engineEnabled && !empty($mybb->settings['vonseo_sitemap_enabled']), 'Lists public forums and threads.'),
+    array('XML sitemap', $engineEnabled && !empty($mybb->settings['vonseo_sitemap_enabled']), 'Lists public forums, threads, announcements, calendars and events.'),
     array('Robots output', $engineEnabled && !empty($mybb->settings['vonseo_robots_enabled']), 'Provides dynamic crawler directives.'),
     array('Keyword URLs', $keywordUrlsActive, $keywordUrlsActive
         ? 'Public forum/thread links use keyword paths. Verify direct visits on this server.'
@@ -1048,9 +1083,13 @@ $health->construct_cell($mybbSeoUrls
     ? 'MyBB is generating ID-based friendly links. Server rewrite rules must also resolve those links.'
     : 'MyBB is generating PHP and query URLs. VonSEO follows the same URL format.');
 $health->construct_row();
+$health->construct_cell('<strong>Server routing</strong>');
+$health->construct_cell(htmlspecialchars_uni($serverHelp['name']), array('class' => 'align_center'));
+$health->construct_cell(htmlspecialchars_uni($serverHelp['help']));
+$health->construct_row();
 $health->construct_cell('<strong>Custom-path router (optional)</strong>');
-$health->construct_cell('<span class="vs-status '.($htaccessState ? 'is-on' : 'is-neutral').'">'.($htaccessState ? 'Installed' : 'Not installed').'</span>', array('class' => 'align_center'));
-$health->construct_cell(htmlspecialchars_uni($htaccessNote));
+$health->construct_cell('<span class="vs-status '.($htaccessState ? 'is-on' : 'is-neutral').'">'.($htaccessState ? 'File detected' : 'Verify route').'</span>', array('class' => 'align_center'));
+$health->construct_cell(htmlspecialchars_uni($serverHelp['apache'] ? $htaccessNote : 'Server configuration is not readable from the ACP. Test a direct custom path after adding the optional fallback.'));
 $health->construct_row();
 $health->construct_cell('<strong>Host-root robots.txt</strong>');
 $health->construct_cell('<span class="vs-status '.($boardPath === '' ? 'is-on' : 'is-warn').'">'.($boardPath === '' ? 'Root board' : 'Host setup').'</span>', array('class' => 'align_center'));
@@ -1091,11 +1130,11 @@ $health->output('Module status');
 echo '</div>';
 
 $endpoints = array(
-    array('Canonical base', $bburl),
-    array('XML sitemap', $bburl.'/misc.php?action=vonseo_sitemap'),
-    array('Robots output', $bburl.'/misc.php?action=vonseo_robots'),
-    array('IndexNow key', $bburl.'/misc.php?action=vonseo_indexnow_key'),
-    array('Custom 404 page', $bburl.'/misc.php?action=vonseo_404')
+    array('Canonical base', $bburl, 'Opens the forum homepage'),
+    array('XML sitemap', $bburl.'/misc.php?action=vonseo_sitemap', 'Opens raw XML'),
+    array('Robots output', $bburl.'/misc.php?action=vonseo_robots', 'Opens plain text'),
+    array('IndexNow key', $bburl.'/misc.php?action=vonseo_indexnow_key', 'Opens the public verification key as plain text'),
+    array('Custom 404 page', $bburl.'/misc.php?action=vonseo_404', 'Opens a deliberate 404 test page')
 );
 $endpointTable = new Table;
 $endpointTable->construct_header('Endpoint', array('width' => 190));
@@ -1106,7 +1145,7 @@ foreach($endpoints as $endpoint)
     $safeUrl = htmlspecialchars_uni($endpoint[1]);
     $endpointTable->construct_cell('<strong>'.htmlspecialchars_uni($endpoint[0]).'</strong>');
     $endpointTable->construct_cell('<span class="vs-endpoint">'.$safeUrl.'</span>');
-    $endpointTable->construct_cell('<a class="vs-button-link" href="'.$safeUrl.'" target="_blank" rel="noopener noreferrer">Open</a>', array('class' => 'align_center'));
+    $endpointTable->construct_cell('<a class="vs-button-link" href="'.$safeUrl.'" target="_blank" rel="noopener noreferrer" title="'.htmlspecialchars_uni($endpoint[2]).'">Open</a>', array('class' => 'align_center'));
     $endpointTable->construct_row();
 }
 echo '<div class="vs-table-wrap vs-table-endpoints">';

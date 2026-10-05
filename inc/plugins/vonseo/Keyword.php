@@ -124,7 +124,7 @@ class VonSEO_Keyword
             'location' => $canonical,
             // A disabled keyword layer is a reversible rollback, not a
             // permanent promise that keyword URLs will never return.
-            // Native aliases must stay temporary while the beta can be
+            // Native aliases must stay temporary while keyword URLs can be
             // rolled back. A cached native->keyword 301 followed by the
             // disabled keyword->native redirect would form a client loop.
             'status' => $keywordEnabled && $request['source'] === 'keyword' ? 301 : 302
@@ -309,10 +309,13 @@ class VonSEO_Keyword
             ++$this->postLookups;
             $post = get_post($pid);
             $this->posts[$pid] = is_array($post) && isset($post['tid'], $post['visible']) &&
-                (int)$post['tid'] === $tid && (int)$post['visible'] === 1 ? $post : false;
+                (int)$post['tid'] > 0 ? $post : false;
         }
 
-        return (bool)$this->posts[$pid];
+        // Cache post data independently of the first link's thread ID.
+        // Every target must still match its own thread and approved status.
+        $post = $this->posts[$pid];
+        return $post && (int)$post['tid'] === $tid && (int)$post['visible'] === 1;
     }
 
     /**
