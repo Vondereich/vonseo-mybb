@@ -72,10 +72,21 @@ This roadmap separates released behavior from possible future work. Items under 
 - Keyword URLs remain optional and disabled by default; native MyBB URLs continue to work, and rollback behavior remains available while VonSEO and its server rules are present.
 - Source and extracted-package checks pass on PHP 8.3, 8.4 and 8.5: 272 self-contained tests, 32 ACP request/token/permission cases, and PHP lint.
 - The local MyBB 1.8/PHP 8.4 playground passed the 21-case guest HTTP smoke, schema 5/5 diagnostics, queue readiness and focused 404 aggregation proof.
-- A later manual audit found and closed an authenticated ACP settings-write issue, an overly broad permission and an unsupported-database activation defect. Current remediation is summarized in the 1.0.0 changelog and covered by the included regression suite.
+- A later manual audit found and closed an authenticated ACP settings-write issue, an overly broad permission and an unsupported-database activation defect. These changes have focused regression coverage; historical scans are not a guarantee for later changes or every deployment.
+
+## v1.0.1 Maintenance: implemented
+- Search, response/state filters, sorting and 50-row pagination for ACP redirect lists; search, sorting and pagination for the 404 monitor.
+- Root/subfolder Nginx snippets and server-aware ACP instructions. Nginx fixture routing was exercised locally; a complete installed Nginx/MyBB deployment and LiteSpeed runtime remain separate compatibility checks.
+- Portable contributor verification runner and GitHub Actions definitions for PHP 7.1-8.5, MySQL/MariaDB and public-package parity. Remote matrix results remain unverified until the workflow runs.
+- No database migration or change to keyword/indexing defaults.
+
+## v1.0.2 Keyword post-target maintenance: implemented
+- Cache raw post data by post ID and recheck the requested thread ID plus approved status for every keyword link or redirect decision.
+- Regression coverage for both link orders, private/unapproved/missing posts, the ten-post lookup budget and keyword URLs off.
+- No database migration or change to keyword/indexing defaults.
 
 ## Deployment checks for site owners
-- Verify Apache rules on staging before enabling keyword URLs. Nginx and LiteSpeed users must translate the supplied Apache rules into their server configuration.
+- Verify the matching server rules on staging before enabling keyword URLs. Apache-style and Nginx examples are supplied; confirm rewrite loading and direct visits on LiteSpeed.
 - A board installed in a subfolder cannot automatically own the host-root `/robots.txt`; configure the web root manually and use the ACP guidance to inspect the expected content.
 - Test the production theme, mobile layout, custom plugins, guest permissions and user-generated links. VonSEO cannot repair theme HTML or moderation policy on its own.
 - Submit the sitemap through the search-engine tools you use and inspect representative public, private and paginated pages. Local tests cannot prove indexing, rankings or rich-result eligibility.
@@ -97,7 +108,7 @@ Fully arbitrary URL schemes, virtual parent directories and database-backed slug
 
 ### Server and compatibility
 - Broader installed-theme, calendar-permission and production-server compatibility checks.
-- Nginx/LiteSpeed rewrite examples and direct-route verification guidance.
+- Installed MyBB on Nginx and LiteSpeed runtime verification, beyond the provided examples and Nginx route fixtures.
 - Automatic canonical redirect mode (conservative and opt-in).
 
 ### Content SEO

@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.0.7 - 2026-10-08
+
+- Validate the resolved destination, not only the original input, before saving a manual redirect or importing CSV. Slash-prefixed absolute URLs such as `/https://outside.example/target` can no longer create non-working rules when external redirects are disabled.
+- Keep runtime destination revalidation, same-origin scheme/port checks, credential and CRLF rejection, and the explicit external-redirect opt-in. Check entity-decoded relative inputs before URL resolution can obscure controls or credentials. Invalid edits/import overwrites leave existing rules untouched; valid following CSV rows still import.
+- Add focused normalizer, real save-path and CSV text/file regressions for domain-root, subfolder and nested-subfolder URLs. Database persistence is mocked in these tests; they are not a new live-board penetration test. No database migration or SEO-default change is required.
+- Local PHP 8.3, 8.4 and 8.5 verification passes 33 PHP syntax checks and 655 regression/ACP checks per runtime, including 144 new redirect-target checks. The installed board, public ZIP and GitHub publication are separate release gates.
+
+## 1.0.6 - 2026-10-07
+
+- Stop Redirect Inspector before claiming an exact match for repeated forum base paths or a query consisting only of `0`. These inputs can be normalized differently by the existing frontend; preserve the uncertain URL and request a live check instead of guessing the next rule or suggesting chain shortening.
+- Apply the same boundary to initial board-relative/full URL inputs and later chain destinations. Keep invalid-source rejection, ordinary query matching, root/nested-subfolder support and the 12-lookup budget. No frontend redirect behaviour or database schema is changed.
+- Clarify the legacy normalization exceptions in ACP guidance and the README. Add 24 focused regression checks, including URL preservation, no-query early exits and normal-query/prefix counterexamples.
+- Local PHP 8.3, 8.4 and 8.5 checks pass: 32 PHP syntax checks and 511 regression/ACP checks per runtime. A single independent reviewer found no remaining actionable issue in this narrow diagnostic patch; this is not a full-plugin security certification or production deployment proof.
+- Installed localhost verification passes 19 guest smoke checks. Controlled negative HTTP inputs, authenticated invalid-token submissions and escaped ACP rendering were also checked; these are bounded local tests, not a full penetration test.
+
+## 1.0.5 - 2026-10-07
+
+- Add an ACP-only, read-only Redirect Inspector with a board-relative/full-board-URL input, request-method selection and ordered saved-rule trace. Link it from Redirect Manager and each saved rule.
+- Detect disabled rules, 410 results, method restrictions, unsafe targets and loops. Bound inspection to 12 indexed rule lookups, stop at external or outside-forum destinations, and flag ambiguous path normalization instead of guessing live routing.
+- Suggest manual review of a shorter mapping only for permanent saved-rule chains. Never fetch destinations, increment hit counters or write redirect data; label disabled-engine previews and the limits of configuration-only inspection.
+- Keep inspection behind MyBB's existing VonSEO ACP permission, escape displayed URLs and add focused read-only, XSS, query-boundary, loop, method and permission regressions. No database migration or frontend redirect behaviour change is required.
+- Local PHP 8.3, 8.4 and 8.5 verification passes: 32 PHP files linted, 303 main tests, 23 ACP list checks, 31 import-report checks, 89 inspector checks and 41 ACP request cases. Isolated desktop/390px preview checks cover the result table, method selection, 410 labels and escaped long URLs; these do not claim an installed-board test, a new ZIP or GitHub CI verification.
+
+## 1.0.4 - 2026-10-07
+
+- Add a row-by-row redirect CSV import result in the ACP, with created, updated and skipped counts, parsed record numbers and whole-file error labels. Report missing columns instead of silently skipping those records.
+- Retain import feedback only in the submitting administrator's MyBB session. Display at most 50 warnings with bounded text and a total count, expire after 15 minutes, and clear after display. Preserve POST/redirect/GET so refreshing the result does not repeat import writes; HEAD probes do not consume feedback.
+- Escape report output, including malformed or truncated UTF-8, and explain partial imports, overwrite skips and parsed-record numbering in the UI and README.
+- Remove the redundant top-level ACP global declaration reported by the community. Keep IDE type annotations and function-local globals.
+- Add focused report and ACP flow regressions. Local PHP 8.3, 8.4 and 8.5 checks pass: 30 PHP files linted, 303 main tests, 23 ACP list checks, 31 import-report checks and 36 ACP mutation cases. These are CLI and mock-flow checks, not production crawler or installed-board verification.
+- No database migration, SEO default or frontend URL behaviour change is required.
+
 ## 1.0.3 - 2026-10-05
 
 - Fixed redirect CSV import and export on PHP 7.1-7.3, where the empty escape argument accepted since PHP 7.4 caused warnings and prevented valid CSV from being processed. Newer runtimes retain the explicit empty escape; older runtimes use an inert single-byte sentinel rather than backslash escaping.

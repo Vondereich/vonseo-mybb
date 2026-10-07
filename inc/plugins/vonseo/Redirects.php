@@ -326,40 +326,42 @@ class VonSEO_Redirects
             return false;
         }
 
-        if(preg_match('#^https?://#i', $target))
+        if(!preg_match('#^https?://#i', $target))
         {
-            $parts = @parse_url($target);
-            if(!$parts || empty($parts['host']) || empty($parts['scheme']))
+            if(preg_match('#^[a-z][a-z0-9+.-]*:#i', $target))
             {
                 return false;
             }
 
-            $scheme = strtolower($parts['scheme']);
-            if(!in_array($scheme, array('http', 'https')))
+            // Relative resolution removes leading slashes and decodes entities again.
+            // Check that input before resolution can hide controls/credentials,
+            // then apply the same URL policy to the resolved destination below.
+            $relative = ltrim($target, '/');
+            $resolvedInput = html_entity_decode(trim($relative), ENT_QUOTES, 'UTF-8');
+            $inputParts = @parse_url($resolvedInput);
+            if(preg_match('/[\r\n]/', $resolvedInput) || strpos($resolvedInput, '//') === 0 ||
+                isset($inputParts['user']) || isset($inputParts['pass']))
             {
                 return false;
             }
-
-            if(isset($parts['user']) || isset($parts['pass']))
-            {
-                return false;
-            }
-
-            $base = @parse_url($this->url->base());
-            if(!$this->sameOrigin($parts, $base) && !VonSEO_Utils::setting('vonseo_external_redirects', 0))
-            {
-                return false;
-            }
-
-            return $target;
+            $target = $this->url->absolute($relative);
         }
 
-        if(preg_match('#^[a-z][a-z0-9+.-]*:#i', $target))
+        $parts = @parse_url($target);
+        if(!$parts || empty($parts['host']) || empty($parts['scheme']) ||
+            !in_array(strtolower($parts['scheme']), array('http', 'https')) ||
+            isset($parts['user']) || isset($parts['pass']))
         {
             return false;
         }
 
-        return $this->url->absolute(ltrim($target, '/'));
+        $base = @parse_url($this->url->base());
+        if(!$this->sameOrigin($parts, $base) && !VonSEO_Utils::setting('vonseo_external_redirects', 0))
+        {
+            return false;
+        }
+
+        return $target;
     }
 
     /**
@@ -729,6 +731,7 @@ class VonSEO_Redirects
             $cols = $csvRow['columns'];
             if(count($cols) < 2)
             {
+                $errors[] = "Row {$rowNum}: expected source_path and target_url columns.";
                 ++$skipped;
                 continue;
             }

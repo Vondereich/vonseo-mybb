@@ -1236,6 +1236,11 @@ $t->assert(!empty($oversizeImport['errors']) && count($csvRedirects->saved) === 
 $multilineCsv = "source_path,target_url,status_code,enabled\n\"/bad\nsource\",/target,301,1\n/after-multiline,/after-target,302,1\n";
 $multilineResult = $csvRedirects->importCsv($multilineCsv);
 $t->assert($multilineResult['imported'] === 1 && $multilineResult['skipped'] === 1 && end($csvRedirects->saved)[0] === '/after-multiline', 'CSV parser treats a quoted multiline field as one rejected row and continues safely');
+$t->assert(strpos($multilineResult['errors'][0], 'Row 2:') === 0, 'CSV warning row numbers count quoted multiline records once');
+$missingColumns = $csvRedirects->importCsv("source_path,target_url,status_code,enabled\n/only-source\n/valid-after,/destination,301,1\n");
+$t->assert($missingColumns['imported'] === 1 && $missingColumns['skipped'] === 1 &&
+    $missingColumns['errors'] === array('Row 2: expected source_path and target_url columns.'),
+    'CSV rows missing destination columns report a precise reason and valid following rows still import');
 
 $csvOriginalDb = $GLOBALS['db'];
 $csvEdgeTarget = 'https://example.com/forum/?label="quoted"&path=C:\\folder\\';
@@ -1732,7 +1737,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.0.3', 'Source plugin metadata matches the 1.0.3 release');
+$t->assert(vonseo_info()['version'] === '1.0.7', 'Source plugin metadata matches the 1.0.7 release');
 $pluginSource = file_get_contents(MYBB_ROOT.'inc/plugins/vonseo.php');
 $t->assert(strpos($pluginSource, "add_hook('postbit_announcement', 'vonseo_capture_guest_announcement'") !== false,
     'Announcement text capture is registered on MyBB postbit_announcement');

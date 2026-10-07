@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.3'
+    [string]$Version = '1.0.7'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,7 +28,9 @@ foreach($relative in @('README.md', 'CHANGELOG.md'))
 $files = @(
     'admin/modules/config/vonseo.php',
     'inc/plugins/vonseo.php',
+    'inc/plugins/vonseo/AdminImport.php',
     'inc/plugins/vonseo/AdminList.php',
+    'inc/plugins/vonseo/AdminRedirects.php',
     'inc/plugins/vonseo/Context.php',
     'inc/plugins/vonseo/Core.php',
     'inc/plugins/vonseo/Errors.php',

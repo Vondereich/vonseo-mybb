@@ -52,7 +52,10 @@ if($mode !== 'lint')
         }
     }
     runCheck(escapeshellarg($root.'/tests/run_tests.php'));
+    runCheck(escapeshellarg($root.'/tests/redirect_targets.php'));
     runCheck(escapeshellarg($root.'/tests/acp_lists.php'));
+    runCheck(escapeshellarg($root.'/tests/acp_import.php'));
+    runCheck(escapeshellarg($root.'/tests/acp_redirect_inspector.php'));
     $cases = array();
     foreach(array('redirect_save', 'redirect_delete', 'redirects_import', 'notfound_clear', 'notfound_clear_all') as $action)
     {
@@ -70,9 +73,17 @@ if($mode !== 'lint')
     }
     $cases[] = array('site_details_save', 'invalid');
     $cases[] = array('site_details_save', 'sql');
+    foreach(array('warnings', 'report', 'report_head', 'report_expired') as $mode)
+    {
+        $cases[] = array('redirects_import', $mode);
+    }
+    foreach(array('get', 'head', 'post', 'denied', 'invalid') as $mode)
+    {
+        $cases[] = array('redirect_inspect', $mode);
+    }
     foreach($cases as $case)
     {
         runCheck(escapeshellarg($root.'/tests/acp_redirect_csrf.php').' '.escapeshellarg($case[0]).' '.escapeshellarg($case[1]));
     }
-    echo 'ACP mutation matrix: '.count($cases).' cases passed'.PHP_EOL;
+    echo 'ACP request matrix: '.count($cases).' cases passed'.PHP_EOL;
 }

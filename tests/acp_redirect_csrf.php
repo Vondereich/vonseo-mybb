@@ -1,6 +1,6 @@
 <?php
 /**
- * Focused ACP mutation-method regression. Run one action/method per process so
+ * Focused ACP request/permission regression. Run one action/method per process so
  * the admin module can be included once per process.
  */
 
@@ -139,9 +139,15 @@ class TestDb
     public $inserted = array();
     public $deleted = array();
     public $updated = array();
+    public $selected = array();
 
     public function simple_select(string $table, string $fields, string $conditions = '', array $options = array())
     {
+        $this->selected[] = array($table, $fields, $conditions, $options);
+        if($table === 'vonseo_redirects' && strpos($conditions, "source_hash='".hash('sha256', '/inspect-old')."'") !== false)
+        {
+            return array('rid' => 8, 'source_path' => '/inspect-old', 'target_url' => 'https://example.com/forum/inspect-new', 'status_code' => 301, 'enabled' => 1);
+        }
         if($table === 'vonseo_redirects' && $fields === '*' && strpos($conditions, "rid='7'") !== false)
         {
             return array('rid' => 7, 'source_path' => '/old');
@@ -217,6 +223,11 @@ function log_admin_action(...$args)
 
 function check_admin_permissions(array $action, bool $error = true)
 {
+    if(!empty($GLOBALS['test_deny_base']) && $action === array('module' => 'config', 'action' => 'vonseo'))
+    {
+        if($error) { throw new RuntimeException('Access denied'); }
+        return false;
+    }
     if(!empty($GLOBALS['test_deny_sensitive']) && $action['module'] === 'config' &&
        in_array($action['action'], array('vonseo_settings', 'settings'), true))
     {
@@ -232,6 +243,18 @@ function check_admin_permissions(array $action, bool $error = true)
 
 function flash_message(string $message, string $type)
 {
+    $GLOBALS['test_flash'] = array($message, $type);
+}
+
+function update_admin_session($key, $value)
+{
+    $GLOBALS['admin_session']['data'][$key] = $value;
+    $GLOBALS['test_session_writes'][] = array($key, $value);
+}
+
+function my_number_format($value)
+{
+    return number_format($value);
 }
 
 function verify_post_check(string $token)
@@ -256,12 +279,14 @@ function vonseo_require_core()
     require_once MYBB_ROOT.'inc/plugins/vonseo/IndexNow.php';
 }
 
-$actions = array('redirect_save', 'redirect_delete', 'redirects_import', 'notfound_clear', 'notfound_clear_all', 'site_details_save', 'indexnow_rotate_key');
+$actions = array('redirect_save', 'redirect_delete', 'redirects_import', 'notfound_clear', 'notfound_clear_all', 'site_details_save', 'indexnow_rotate_key', 'redirect_inspect');
 $action = isset($argv[1]) ? strtolower($argv[1]) : '';
 $mode = isset($argv[2]) ? strtolower($argv[2]) : '';
-if(!in_array($action, $actions, true) || !in_array($mode, array('get', 'head', 'post', 'csrf', 'invalid', 'sql', 'denied'), true) ||
-   (in_array($mode, array('invalid', 'sql'), true) && $action !== 'site_details_save') ||
-   ($mode === 'denied' && !in_array($action, array('site_details_save', 'indexnow_rotate_key'), true)))
+if(!in_array($action, $actions, true) || !in_array($mode, array('get', 'head', 'post', 'csrf', 'invalid', 'sql', 'denied', 'warnings', 'report', 'report_head', 'report_expired'), true) ||
+   ($mode === 'invalid' && !in_array($action, array('site_details_save', 'redirect_inspect'), true)) ||
+   ($mode === 'sql' && $action !== 'site_details_save') ||
+   ($mode === 'denied' && !in_array($action, array('site_details_save', 'indexnow_rotate_key', 'redirect_inspect'), true)) ||
+   (in_array($mode, array('warnings', 'report', 'report_head', 'report_expired'), true) && $action !== 'redirects_import'))
 {
     fwrite(STDERR, "Usage: php tests/acp_redirect_csrf.php action get|head|post|csrf; site_details_save also supports invalid|sql; sensitive actions support denied\n");
     exit(2);
@@ -269,6 +294,14 @@ if(!in_array($action, $actions, true) || !in_array($mode, array('get', 'head', '
 
 $GLOBALS['mybb'] = new MyBB();
 $GLOBALS['mybb']->request_method = in_array($mode, array('csrf', 'invalid', 'sql', 'denied'), true) ? 'post' : $mode;
+if($mode === 'warnings')
+{
+    $GLOBALS['mybb']->request_method = 'post';
+}
+elseif(in_array($mode, array('report', 'report_head', 'report_expired'), true))
+{
+    $GLOBALS['mybb']->request_method = $mode === 'report_head' ? 'head' : 'get';
+}
 $GLOBALS['mybb']->input['action'] = $action;
 if($mode === 'csrf')
 {
@@ -303,10 +336,33 @@ if($action === 'notfound_clear')
 {
     $GLOBALS['mybb']->input['hash'] = str_repeat('a', 64);
 }
+if($action === 'redirect_inspect')
+{
+    $GLOBALS['mybb']->input['source'] = $mode === 'invalid' ? array('malformed') : '/inspect-old';
+    $GLOBALS['mybb']->input['inspect_method'] = 'GET';
+    if($mode === 'denied') { $GLOBALS['test_deny_base'] = true; }
+}
 $GLOBALS['page'] = new Page();
 $GLOBALS['db'] = new TestDb();
 $GLOBALS['cache'] = new TestCache();
 $GLOBALS['test_admin_logs'] = array();
+$GLOBALS['test_session_writes'] = array();
+$GLOBALS['admin_session'] = array('data' => array());
+if($mode === 'warnings')
+{
+    $GLOBALS['mybb']->input['csv_text'] .= "/only-source\n//evil.example/path,/target,301,1\n";
+}
+if(in_array($mode, array('report', 'report_head', 'report_expired'), true))
+{
+    require_once MYBB_ROOT.'inc/plugins/vonseo/AdminImport.php';
+    $report = VonSEO_AdminImport::prepare(array('imported' => 1, 'updated' => 0, 'skipped' => 1,
+        'errors' => array('Row 3: <script>alert(1)</script>')));
+    if($mode === 'report_expired')
+    {
+        $report['created_at'] = TIME_NOW - VonSEO_AdminImport::REPORT_TTL - 1;
+    }
+    $GLOBALS['admin_session']['data'][VonSEO_AdminImport::SESSION_KEY] = $report;
+}
 
 $redirected = false;
 $confirmed = false;
@@ -327,7 +383,7 @@ catch(TestAdminRedirect $exception)
     }
     else
     {
-        $expected = strpos($action, 'redirect') === 0 ? 'redirects' : 'notfound';
+        $expected = $action === 'redirects_import' ? 'redirects_import' : (strpos($action, 'redirect') === 0 ? 'redirects' : 'notfound');
         $redirected = $exception->getMessage() === 'index.php?module=config-vonseo&action='.$expected;
     }
 }
@@ -344,7 +400,7 @@ catch(RuntimeException $exception)
     $csrfRejected = $exception->getMessage() === 'Invalid post token';
     $accessDenied = $exception->getMessage() === 'Access denied';
 }
-ob_end_clean();
+$output = ob_get_clean();
 
 $rows = $GLOBALS['db']->inserted;
 $deletes = $GLOBALS['db']->deleted;
@@ -398,14 +454,50 @@ elseif($action === 'redirect_save')
         $passed = $passed && $rows[0]['source_path'] === '/csrf-test' && $rows[0]['status_code'] === 410;
     }
 }
+elseif($action === 'redirect_inspect')
+{
+    $passed = $completed && !$redirected && !$confirmed && !$rows && !$deletes && !$updates
+        && !$GLOBALS['test_session_writes'];
+    if($mode === 'invalid')
+    {
+        $passed = $passed && !$GLOBALS['db']->selected && strpos($output, 'Invalid source URL') !== false;
+    }
+    else
+    {
+        $passed = $passed && count($GLOBALS['db']->selected) === 2 && strpos($output, 'End of saved rule chain') !== false
+            && strpos($output, 'Followed redirects: <strong>1</strong>') !== false
+            && strpos($output, 'method="get"') !== false;
+    }
+}
 elseif($action === 'redirects_import')
 {
-    $expectedRows = $mode === 'post' ? 1 : 0;
-    $passed = ($mode === 'post' ? $redirected : $completed) && count($rows) === $expectedRows && !$deletes && !$updates;
-    if($mode === 'post')
+    $writes = in_array($mode, array('post', 'warnings'), true);
+    $expectedRows = $writes ? 1 : 0;
+    $passed = ($writes ? $redirected : $completed) && count($rows) === $expectedRows && !$deletes && !$updates;
+    if($writes)
     {
         $passed = $passed && $rows[0]['source_path'] === '/import-old' && $rows[0]['target_url'] === 'https://example.com/forum/import-new'
-            && isset($GLOBALS['test_admin_logs'][0][0]) && $GLOBALS['test_admin_logs'][0][0] === 'vonseo_redirects_import';
+            && isset($GLOBALS['test_admin_logs'][0][0]) && $GLOBALS['test_admin_logs'][0][0] === 'vonseo_redirects_import'
+            && count($GLOBALS['test_session_writes']) === 1 && $GLOBALS['test_session_writes'][0][1]['imported'] === 1;
+        if($mode === 'warnings')
+        {
+            $passed = $passed && $GLOBALS['test_session_writes'][0][1]['warning_count'] === 2
+                && $GLOBALS['test_session_writes'][0][1]['skipped'] === 2
+                && $GLOBALS['test_session_writes'][0][1]['warnings'][0]['row'] === 3
+                && $GLOBALS['test_flash'][1] === 'success';
+        }
+    }
+    elseif($mode === 'report')
+    {
+        $passed = $passed && count($GLOBALS['test_session_writes']) === 1
+            && $GLOBALS['test_session_writes'][0][1] === null
+            && strpos($output, 'Last import result') !== false && strpos($output, '&lt;script&gt;') !== false
+            && strpos($output, '<script>') === false;
+    }
+    elseif(in_array($mode, array('report_head', 'report_expired'), true))
+    {
+        $passed = $passed && strpos($output, 'Last import result') === false
+            && count($GLOBALS['test_session_writes']) === ($mode === 'report_head' ? 0 : 1);
     }
 }
 else
@@ -427,8 +519,17 @@ else
     }
 }
 
-$expectedLogCount = in_array($mode, array('post', 'sql'), true) ? 1 : 0;
+$expectedLogCount = in_array($mode, array('post', 'sql', 'warnings'), true) ? 1 : 0;
+if($action === 'redirect_inspect')
+{
+    $expectedLogCount = 0;
+    if($mode === 'denied') { $passed = $passed && !$GLOBALS['db']->selected && !$GLOBALS['test_session_writes']; }
+}
 $passed = $passed && count($GLOBALS['test_admin_logs']) === $expectedLogCount;
+if($mode === 'csrf')
+{
+    $passed = $passed && !$GLOBALS['test_session_writes'];
+}
 
 echo ($passed ? '[PASS] ' : '[FAIL] ').$action.' '.strtoupper($mode).' '.count($rows).'/'.count($deletes).'/'.count($updates)." insert/delete/update writes\n";
 exit($passed ? 0 : 1);

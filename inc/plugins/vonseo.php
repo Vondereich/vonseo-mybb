@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.0.3
+ * @version 1.0.7
  */
 
 if(!defined('IN_MYBB'))

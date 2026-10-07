@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Current stable release: **1.0.3**. Keyword URLs remain opt-in and off by default. This maintenance update fixes redirect CSV import/export compatibility on PHP 7.1-7.3 while retaining the keyword post-target fix, searchable ACP lists and Nginx rewrite examples. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
+Current version: **1.0.7**. Keyword URLs remain opt-in and off by default. This update validates resolved redirect destinations before saving or importing rules, including slash-prefixed absolute URLs. The read-only inspector, one-use ACP CSV import report, searchable lists and Nginx rewrite examples remain available. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
@@ -26,7 +26,9 @@ inc/
 ├── plugins/
 │   ├── vonseo.php
 │   └── vonseo/
+│       ├── AdminImport.php
 │       ├── AdminList.php
+│       ├── AdminRedirects.php
 │       ├── Core.php
 │       ├── Context.php
 │       ├── Errors.php
@@ -329,6 +331,31 @@ source_path,target_url,status_code,enabled
 
 Imports are limited to 2 MiB and 5,000 data rows. Export before a bulk change. Use overwrite only when an existing exact source should be replaced.
 
+To import:
+
+1. Open **Redirects → Import CSV**, then upload a UTF-8 CSV file or paste its contents. If a file is selected, the pasted text is ignored.
+2. Leave **Overwrite Existing** at **No** to keep existing source paths unchanged, or choose **Yes** deliberately to update matching rules.
+3. Submit once. VonSEO redirects back to the import screen and shows **Last import result**, with created, updated and skipped counts. Refreshing the resulting page does not run the import again.
+4. Review the warning table. Missing columns, invalid sources and rejected rules include a CSV row number and reason; whole-file errors appear as **File / format**. Numbers count parsed CSV records, including the header and blank records, rather than physical text lines. A quoted multiline record counts once.
+5. Correct and re-import only rejected records. Row validation is not an all-or-nothing transaction: other valid rules may already have been saved. Existing sources skipped because overwrite is **No** do not produce a warning.
+
+The result displays the first 50 warnings and the total warning count. Long reasons are shortened. It is scoped to the administrator session that submitted the import, shown once, and expires after 15 minutes; it is not permanent import history. Save the information you need before leaving or refreshing the result screen. The report does not retain the full uploaded CSV.
+
+### Using Redirect Inspector
+
+1. Open **Redirects → Inspect redirects**, or press **Inspect** beside a saved rule.
+2. Enter a board-relative source such as `/old-thread?ref=1`, or its full URL inside MyBB's configured **Board URL**. On a `/forum/` installation, `/old-thread` means `https://example.com/forum/old-thread`, not the domain-root path. Ordinary query strings match exactly; fragments do not participate in matching. A query consisting only of `0` (for example `/old-thread?0`) is a legacy normalization exception and is flagged for a live check.
+3. Choose **GET** for a normal page visit, **HEAD** for a header request, or another listed request method to check the redirect policy. VonSEO skips 301/302 rules for methods other than GET and HEAD; 307/308 preserve the method.
+4. Press **Inspect saved rules**. Review the ordered source, response/state and destination rows. **Review rule** opens the saved rule's edit form; inspection itself does not save changes.
+
+The inspector reads at most 12 exact rule lookups. It reports missing rules, disabled rules, 410 responses, method restrictions, unsafe destinations and loops. A chain longer than the lookup budget is reported as **Inspection limit reached**, not assumed to be a loop. If only permanent redirects lead to an apparent chain end, it can suggest reviewing a shorter mapping; this is advice, not automatic flattening.
+
+This is a saved-configuration diagnostic, not an HTTP crawler. It never visits a URL, increments a hit counter or writes to the redirect table. External destinations and same-origin destinations outside the configured forum path stop the trace. Dot segments or encoded path separators also stop inspection because live routing can normalize them differently. Source URLs with these ambiguous paths are rejected. With either SEO or redirects disabled, a warning identifies the result as a configuration preview.
+
+Repeated board prefixes (for example `https://example.com/forum/forum/old-thread`) and queries consisting only of `0` produce **URL normalization needs a live check**. The existing frontend can strip a board prefix more than once or treat `?0` as an empty query, so the inspector does not claim an exact next match or suggest shortening such a chain. The displayed uncertain URL is retained; no frontend routing rule is changed by this diagnostic.
+
+**No matching saved rule** does not mean HTTP 200, public visibility or no redirects elsewhere. Server rewrites, keyword URL migration, other plugins, guest permissions and the live destination response still need staging checks. Confirm those before manually shortening a chain.
+
 ### Using the 404 Monitor
 
 The 404 Monitor records final public `404 Not Found` responses as normalized URL identities with aggregate hit counts. It does not store visitor IP addresses. Unknown, tracking and common secret-bearing query fields are discarded.
@@ -498,7 +525,7 @@ Version 1.0.0 keeps the broader content coverage from 0.6 and adds fail-closed I
 
 ## Contributor checks
 
-The source repository includes tests and build tools; the upload ZIP deliberately excludes them. With PHP installed, run `php scripts/check.php` from the repository root for syntax checks, the main regression suite, ACP list tests and the ACP mutation matrix. These tests use disposable mocks and do not need an installed forum.
+The source repository includes tests and build tools; the upload ZIP deliberately excludes them. With PHP installed, run `php scripts/check.php` from the repository root for syntax checks, the main regression suite, redirect target/save/import policy checks, ACP list/import-report/redirect-inspector tests and the ACP request matrix. These tests use disposable mocks and do not need an installed forum.
 
 `php tests/acp_lists_mysql.php` additionally checks list queries on a real MySQL/MariaDB database using connection-local temporary tables. Supply `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` and `DB_DATABASE` in the environment. It does not create persistent forum tables. GitHub Actions defines PHP 7.1-8.5, MySQL/MariaDB and upload-package jobs; a configured workflow is not evidence that every matrix job has run successfully.
 

@@ -20,9 +20,9 @@ else
 /** @var MyBB $mybb */
 /** @var DB_Base $db */
 /** @var MyLanguage $lang */
-global $page, $mybb, $db, $lang;
 
 require_once MYBB_ROOT.'inc/plugins/vonseo/AdminList.php';
+require_once MYBB_ROOT.'inc/plugins/vonseo/AdminImport.php';
 
 $page->add_breadcrumb_item('VonSEO', 'index.php?module=config-vonseo');
 
@@ -114,6 +114,15 @@ $vonseoAdminCss = <<<'CSS'
 .vs-form-note code{white-space:normal}
 .vs-preview-links{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
 .vs-preview-links a{font-weight:600}
+.vs-import-report h3{margin:0 0 8px;color:#202833;font-size:15px}
+.vs-import-report table{width:100%;min-width:0;border-collapse:collapse;background:#fff}
+.vs-import-report caption{text-align:left;font-weight:600;padding:8px 0}
+.vs-import-report th,.vs-import-report td{padding:8px 10px;border:1px solid #d9dee7;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.vs-import-report th:first-child{width:90px}
+.vs-inspection h3{margin:0 0 8px;font-size:15px;color:#202833}
+.vs-table-inspector table{width:100%;border-collapse:collapse;background:#fff}
+.vs-table-inspector caption{text-align:left;font-weight:600;padding:8px 0}
+.vs-table-inspector th,.vs-table-inspector td{padding:8px 10px;border:1px solid #d9dee7;overflow-wrap:anywhere}
 .vs-empty{padding:18px!important;color:#697386;text-align:center}
 .vs-limit-note{margin:-8px 0 18px;color:#7a8493;font-size:11px;text-align:right}
 .vs-list-filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin:16px 0;padding:12px;background:#f6f7f9;border:1px solid #d9dee7}
@@ -133,6 +142,7 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-health table,.vs-table-endpoints table{min-width:0;width:100%;table-layout:fixed}
 .vs-table-health th,.vs-table-health td,.vs-table-endpoints th,.vs-table-endpoints td{overflow-wrap:anywhere}
 .vs-table-cards table,.vs-table-cards tbody,.vs-table-cards tr{display:block;width:100%;min-width:0;box-sizing:border-box}
+.vs-table-inspector caption{display:block;box-sizing:border-box;width:100%}
 .vs-table-cards thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .vs-table-cards tbody tr{padding:5px 0;border-bottom:1px solid #dfe3e8}
 .vs-table-cards tbody tr:last-child{border-bottom:0}
@@ -152,6 +162,11 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-notfound td:nth-child(3):before{content:"First Seen"}
 .vs-table-notfound td:nth-child(4):before{content:"Last Seen"}
 .vs-table-notfound td:nth-child(5):before{content:"Controls"}
+.vs-table-inspector td:nth-child(1):before{content:"Step"}
+.vs-table-inspector td:nth-child(2):before{content:"Source"}
+.vs-table-inspector td:nth-child(3):before{content:"Response / State"}
+.vs-table-inspector td:nth-child(4):before{content:"Destination"}
+.vs-table-inspector td:nth-child(5):before{content:"Rule"}
 }
 @media(max-width:680px){.vs-page-header{align-items:stretch;flex-direction:column;padding:16px}.vs-actions{justify-content:flex-start}.vs-summary{grid-template-columns:1fr 1fr}.vs-summary-card strong{font-size:19px}}
 /* Only VonSEO pages load these overrides. Keep the native menu accessible
@@ -394,17 +409,15 @@ if($action === 'redirects_import')
             $result = $redirects->importCsv($csvContent, $overwrite);
         }
 
-        $msg = "Import completed: {$result['imported']} created, {$result['updated']} updated, {$result['skipped']} skipped.";
-        if(!empty($result['errors']))
-        {
-            $msg .= '<br />Warnings: '.htmlspecialchars_uni(implode(' | ', array_slice($result['errors'], 0, 5)));
-        }
-
         log_admin_action('vonseo_redirects_import', (int)$result['imported'], (int)$result['updated'], (int)$result['skipped'], count($result['errors']));
-        flash_message($msg, !empty($result['errors']) && $result['imported'] === 0 ? 'error' : 'success');
-        admin_redirect('index.php?module=config-vonseo&action=redirects');
+        VonSEO_AdminImport::store($result);
+        $noChanges = $result['imported'] === 0 && $result['updated'] === 0;
+        flash_message('Import completed. Review the result below.', !empty($result['errors']) && $noChanges ? 'error' : 'success');
+        admin_redirect('index.php?module=config-vonseo&action=redirects_import');
     }
 
+    // A HEAD probe must not consume the administrator's one-use result.
+    $importReport = $mybb->request_method === 'get' ? VonSEO_AdminImport::take() : array();
     $page->output_header('VonSEO - Import Redirects');
     vonseo_admin_tabs('redirects');
 
@@ -415,6 +428,7 @@ if($action === 'redirects_import')
     echo '<p>Upload a CSV file or paste its contents below. Review overwrite behaviour before importing into an existing rule set.</p></div>';
     echo '<div class="vs-actions"><a class="button" href="index.php?module=config-vonseo&amp;action=redirects">Back to redirects</a></div>';
     echo '</div>';
+    echo VonSEO_AdminImport::render($importReport);
     echo '<div class="vs-form-note"><strong>Required header:</strong> <code>source_path,target_url,status_code,enabled</code><br />Accepted status codes: 301, 302, 307, 308 and 410. Maximum 2 MiB and 5,000 rows. Quoted multiline fields are supported.</div>';
 
     /** @var Form $form */
@@ -606,6 +620,46 @@ if($action === 'redirect_add' || $action === 'redirect_edit')
     exit;
 }
 
+if($action === 'redirect_inspect')
+{
+    // MyBB normally checks config/vonseo before including this module. Keep the
+    // read-only diagnostic behind the same permission in alternate dispatchers.
+    check_admin_permissions(array('module' => 'config', 'action' => 'vonseo'));
+    require_once MYBB_ROOT.'inc/plugins/vonseo/AdminRedirects.php';
+    $inspectSource = isset($mybb->input['source']) ? $mybb->input['source'] : '';
+    $inspectMethod = strtoupper($mybb->get_input('inspect_method'));
+    if($inspectMethod === '')
+    {
+        $inspectMethod = 'GET';
+    }
+    $inspection = isset($mybb->input['source']) ? (new VonSEO_AdminRedirects())->inspect($inspectSource, $inspectMethod) : array();
+    $sourceValue = is_string($inspectSource) ? substr($inspectSource, 0, VonSEO_AdminRedirects::MAX_SOURCE_BYTES) : '';
+    $page->output_header('VonSEO - Redirect Inspector');
+    vonseo_admin_tabs('redirects');
+    echo $vonseoAdminCss.'<div class="vs-page"><div class="vs-page-header">';
+    echo '<div><span class="vs-eyebrow">Read-only diagnostic</span><h2>Redirect inspector</h2>';
+    echo '<p>Trace exact saved VonSEO rules without visiting URLs, incrementing hits or changing configuration.</p></div>';
+    echo '<div class="vs-actions"><a class="button" href="index.php?module=config-vonseo&amp;action=redirects">Back to redirects</a></div></div>';
+    echo '<form class="vs-list-filters" action="index.php" method="get">'
+        .'<input type="hidden" name="module" value="config-vonseo" /><input type="hidden" name="action" value="redirect_inspect" />'
+        .'<label for="vs-inspect-source">Source URL<input class="text_input" id="vs-inspect-source" type="text" name="source" maxlength="2048" required value="'
+        .htmlspecialchars($sourceValue, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8').'" /></label>'
+        .'<label for="vs-inspect-method">Request method<select id="vs-inspect-method" name="inspect_method">';
+    foreach(VonSEO_AdminRedirects::methods() as $method)
+    {
+        echo '<option value="'.$method.'"'.($inspectMethod === $method ? ' selected="selected"' : '').'>'.$method.'</option>';
+    }
+    echo '</select></label><button class="button" type="submit">Inspect saved rules</button></form>';
+    echo '<p class="vs-subtle">Example: <code>/old-topic</code> or a full URL inside your Board URL. Ordinary query strings match exactly; a query of just <code>0</code> or repeated board prefixes needs a live check. Fragments are not sent by browsers. At most 12 rule lookups are made.</p>';
+    if($inspection)
+    {
+        echo VonSEO_AdminRedirects::render($inspection);
+    }
+    echo '<div class="vs-form-note">This tool checks only saved VonSEO rules. Server rewrites, keyword URL migration, other plugins, permissions and the destination HTTP status need a separate live check. External destinations are never fetched. No automatic chain flattening is performed.</div></div>';
+    $page->output_footer();
+    exit;
+}
+
 if($action === 'redirects')
 {
     $list = new VonSEO_AdminList('redirects', $mybb->input);
@@ -631,6 +685,7 @@ if($action === 'redirects')
     echo '<div><span class="vs-eyebrow">URL maintenance</span><h2>Redirect manager</h2>';
     echo '<p>Create exact-path redirects, retire removed URLs with 410 responses, and review which rules are actually used.</p></div>';
     echo '<div class="vs-actions">';
+    echo '<a class="button" href="index.php?module=config-vonseo&amp;action=redirect_inspect">Inspect redirects</a>';
     echo '<a class="button" href="index.php?module=config-vonseo&amp;action=redirects_import">Import CSV</a>';
     echo '<a class="button" href="index.php?module=config-vonseo&amp;action=redirects_export">Export CSV</a>';
     echo '<a class="button vs-primary" href="index.php?module=config-vonseo&amp;action=redirect_add">Create redirect</a>';
@@ -670,7 +725,9 @@ if($action === 'redirects')
         $table->construct_cell($status, array('class' => 'align_center'));
         $table->construct_cell(my_number_format($rule['hits']), array('class' => 'align_center'));
         $table->construct_cell($last, array('class' => 'align_center'));
-        $controls = '<span class="vs-row-actions"><a href="index.php?module=config-vonseo&amp;action=redirect_edit&amp;rid='.(int)$rule['rid'].'">Edit</a>'
+        $inspectLink = 'index.php?'.http_build_query(array('module' => 'config-vonseo', 'action' => 'redirect_inspect', 'source' => $rule['source_path']), '', '&', PHP_QUERY_RFC3986);
+        $controls = '<span class="vs-row-actions"><a href="'.htmlspecialchars_uni($inspectLink).'">Inspect</a>'
+            .'<a href="index.php?module=config-vonseo&amp;action=redirect_edit&amp;rid='.(int)$rule['rid'].'">Edit</a>'
             .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=redirect_delete&amp;rid='.(int)$rule['rid'].'">Delete</a></span>';
         $table->construct_cell($controls, array('class' => 'align_center'));
         $table->construct_row();
