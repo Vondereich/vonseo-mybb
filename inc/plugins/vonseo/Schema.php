@@ -124,9 +124,10 @@ class VonSEO_Schema
                     $posting['dateModified'] = VonSEO_Utils::isoDate($context->data['first_post_edittime']);
                 }
 
-                if(!empty($thread['uid']) && VonSEO_Utils::setting('vonseo_profile_index', 0))
+                $authorUrl = $this->url->publicProfile(isset($thread['uid']) ? $thread['uid'] : 0);
+                if($authorUrl !== '')
                 {
-                    $posting['author']['url'] = $this->url->profile((int)$thread['uid']);
+                    $posting['author']['url'] = $authorUrl;
                 }
 
                 $interactionStatistic = array();
@@ -526,12 +527,12 @@ class VonSEO_Schema
             'url' => $url
         );
 
-        $logo = trim((string)VonSEO_Utils::setting('vonseo_organization_logo', ''));
+        $logo = $this->url->image(VonSEO_Utils::setting('vonseo_organization_logo', ''));
         if($logo !== '')
         {
             $org['logo'] = array(
                 '@type' => 'ImageObject',
-                'url' => $this->url->absolute($logo)
+                'url' => $logo
             );
         }
 

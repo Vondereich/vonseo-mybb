@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Current version: **1.0.7**. Keyword URLs remain opt-in and off by default. This update validates resolved redirect destinations before saving or importing rules, including slash-prefixed absolute URLs. The read-only inspector, one-use ACP CSV import report, searchable lists and Nginx rewrite examples remain available. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
+Current version: **1.0.8**. Keyword URLs remain opt-in and off by default. This update brings Portal thread/forum links into the keyword URL family, makes metadata replacement respect HTML tag boundaries, validates public image URLs and uses guest-visible profile URLs for article authors. The read-only inspector, one-use ACP CSV import report, searchable lists and Nginx rewrite examples remain available. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
@@ -32,6 +32,7 @@ inc/
 │       ├── Core.php
 │       ├── Context.php
 │       ├── Errors.php
+│       ├── Html.php
 │       ├── IndexNow.php
 │       ├── Keyword.php
 │       ├── Meta.php
@@ -275,7 +276,13 @@ Active public MyBB announcements now use the same canonical, board identity and 
 
 Guest-visible MyBB monthly calendars and public events now use MyBB's own calendar/event URL helpers. Monthly calendar pages receive canonical metadata and `CollectionPage` JSON-LD. Public event pages receive a guest-rendered description, `Event` JSON-LD with real start/end data when available, and a calendar breadcrumb. Private, unapproved and guest-denied events are excluded from metadata and the event sitemap. Day, week and calendar utility views remain noindex to avoid duplicate archive surfaces. VonSEO does not fabricate event locations, offers or rich-result eligibility.
 
-Keyword URLs for public forums and threads are available as an opt-in setting. They use stable IDs and flat paths, for example `t-42-sample-topic`, `t-42-sample-topic--post-105#pid105`, `t-42-sample-topic--lastpost` and `f-4-general--p2`; flat paths avoid breaking MyBB's relative links on direct visits. Add the matching Apache-style or Nginx rules from `extras/` and verify direct visits **before** enabling the setting. Canonical, schema, sitemap, IndexNow, ordinary forum/thread navigation, page links, exact `tid + pid` post targets and MyBB's stock `lastpost`, `newpost`, `nextnewest` and `nextoldest` actions on reviewed public pages use the keyword family. Post-only URLs without a thread ID, display modes, sort/filter links, archive/print variants and protected content keep their native behavior. Other page types and custom themes may still emit stock links. Extra query parameters on keyword routes are discarded by the supplied server rules so they cannot override the path's IDs or action.
+Keyword URLs for public forums and threads are available as an opt-in setting. They use stable IDs and flat paths, for example `t-42-sample-topic`, `t-42-sample-topic--post-105#pid105`, `t-42-sample-topic--lastpost` and `f-4-general--p2`; flat paths avoid breaking MyBB's relative links on direct visits. Add the matching Apache-style or Nginx rules from `extras/` and verify direct visits **before** enabling the setting. Canonical, schema, sitemap, IndexNow, ordinary forum/thread navigation, page links, exact `tid + pid` post targets and MyBB's stock `lastpost`, `newpost`, `nextnewest` and `nextoldest` actions on Index, Forum, Thread and Portal pages use the keyword family. Portal latest-thread, announcement-thread, last-post and forum links are included; the Portal page itself keeps `portal.php` as its canonical. Post-only URLs without a thread ID, display modes, sort/filter links, archive/print variants and protected content keep their native behavior. Other page types and custom themes may still emit stock links. Additional thread/post lookups remain limited to ten of each per page, so unusually large or custom listings can retain native links once that budget is exhausted. Extra query parameters on keyword routes are discarded by the supplied server rules so they cannot override the path's IDs or action.
+
+Metadata replacement edits complete tags inside an explicit document head without reserializing the page. Quoted/unquoted attributes and whitespace around `=` are supported. JavaScript, styles, comments, template contents and body markup are preserved; documents with missing or incomplete head boundaries are left unchanged. Keep the normal MyBB head structure in custom themes.
+
+Default Social Image, Organization Logo and profile avatars accept valid HTTP(S) URLs or board-relative paths such as `images/social.png`. Protocol-relative CDN URLs are also supported. URLs containing credentials, control characters, backslashes or unsupported schemes are omitted from output; invalid avatars fall back to the configured social image. VonSEO does not fetch these URLs or confirm that an image is reachable, so check valid image links yourself. Blank image settings remain optional.
+
+The Open Graph `article:author` value is a profile URL, not a username. It is emitted only when member-profile indexing is enabled, the author has a positive user ID and MyBB's guest group can view both the board and member profiles. Otherwise it is omitted; visible author names remain in applicable structured data. Thread schema author URLs follow the same permission gate. Missing guest permission data fails closed, without additional database lookups.
 
 ### Keyword URL migration and rollback
 

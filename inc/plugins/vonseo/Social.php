@@ -55,9 +55,10 @@ class VonSEO_Social
             {
                 $tags[] = array('property', 'article:section', VonSEO_Utils::plainText($forum['name']));
             }
-            if(!empty($thread['username']))
+            $authorUrl = (new VonSEO_Url())->publicProfile(isset($thread['uid']) ? $thread['uid'] : 0);
+            if($context->indexable && $authorUrl !== '')
             {
-                $tags[] = array('property', 'article:author', VonSEO_Utils::plainText($thread['username']));
+                $tags[] = array('property', 'article:author', $authorUrl);
             }
         }
         elseif($context->type === 'announcement')
@@ -73,9 +74,10 @@ class VonSEO_Social
             {
                 $tags[] = array('property', 'article:section', VonSEO_Utils::plainText($forum['name']));
             }
-            if(!empty($announcement['username']))
+            $authorUrl = (new VonSEO_Url())->publicProfile(isset($announcement['uid']) ? $announcement['uid'] : 0);
+            if($context->indexable && $authorUrl !== '')
             {
-                $tags[] = array('property', 'article:author', VonSEO_Utils::plainText($announcement['username']));
+                $tags[] = array('property', 'article:author', $authorUrl);
             }
         }
 

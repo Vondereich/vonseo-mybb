@@ -101,6 +101,7 @@ function rebuild_settings()
 require_once MYBB_ROOT.'inc/plugins/vonseo/Utils.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/State.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Url.php';
+require_once MYBB_ROOT.'inc/plugins/vonseo/Html.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Keyword.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Context.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Robots.php';
@@ -1101,6 +1102,7 @@ $t->assert(!isset($missingAuthorSchema['@graph'][0]) || $missingAuthorSchema['@g
 
 // --- TEST 4: Open Graph & Social Article Tags ---
 $social = new VonSEO_Social();
+$GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewprofiles' => 1));
 $tags = $social->tags($threadContext);
 $articleSectionFound = false;
 $articleAuthorFound = false;
@@ -1110,13 +1112,50 @@ foreach($tags as $tag)
     {
         $articleSectionFound = true;
     }
-    if($tag[1] === 'article:author' && $tag[2] === 'Vondereich')
+    if($tag[1] === 'article:author' && $tag[2] === 'https://example.com/forum/member.php?action=profile&uid=1')
     {
         $articleAuthorFound = true;
     }
 }
 $t->assert($articleSectionFound, 'Open Graph article:section tag is emitted');
-$t->assert($articleAuthorFound, 'Open Graph article:author tag is emitted');
+$t->assert($articleAuthorFound, 'Open Graph article:author uses the public profile URL, not a username');
+$profileSettingsBefore = $GLOBALS['mybb']->settings['vonseo_profile_index'];
+$guestGroupsBefore = $GLOBALS['cache']->data['usergroups'];
+foreach(array('profiles disabled', 'guest denied', 'guest cannot view board', 'missing guest cache', 'private context', 'guest author') as $authorCase)
+{
+    $GLOBALS['mybb']->settings['vonseo_profile_index'] = $authorCase === 'profiles disabled' ? '0' : '1';
+    $GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewprofiles' => 1));
+    $authorContext = clone $threadContext;
+    if($authorCase === 'guest denied')
+    {
+        $GLOBALS['cache']->data['usergroups'][1]['canviewprofiles'] = 0;
+    }
+    elseif($authorCase === 'guest cannot view board')
+    {
+        $GLOBALS['cache']->data['usergroups'][1]['canview'] = 0;
+    }
+    elseif($authorCase === 'missing guest cache')
+    {
+        unset($GLOBALS['cache']->data['usergroups']);
+    }
+    elseif($authorCase === 'private context')
+    {
+        $authorContext->indexable = false;
+    }
+    elseif($authorCase === 'guest author')
+    {
+        $authorContext->data['thread']['uid'] = 0;
+    }
+    $authorTags = array_column($social->tags($authorContext), 2, 1);
+    $t->assert(!isset($authorTags['article:author']), 'Article author profile is omitted for '.$authorCase);
+    if($authorCase !== 'private context')
+    {
+        $authorSchema = $schema->build($authorContext);
+        $t->assert(!isset($authorSchema['@graph'][0]['author']['url']), 'Schema shares the author URL gate for '.$authorCase);
+    }
+}
+$GLOBALS['mybb']->settings['vonseo_profile_index'] = $profileSettingsBefore;
+$GLOBALS['cache']->data['usergroups'] = $guestGroupsBefore;
 $originalBoardName = $GLOBALS['mybb']->settings['bbname'];
 $GLOBALS['mybb']->settings['bbname'] = '  Community Forum  ';
 $trimmedSocial = $social->tags($threadContext);
@@ -1504,6 +1543,210 @@ $literalHtml = (new VonSEO_Core())->render('<html><head><title>Old</title></head
 $t->assert(strpos($literalHtml, '<title>Price $1.00 \\1 $0 - Community Forum</title>') !== false &&
     substr_count($literalHtml, '<head>') === 1 && substr_count($literalHtml, '</head>') === 1,
     'Dynamic metadata containing replacement tokens stays literal and cannot corrupt the head');
+
+// Head edits must operate on actual tags, not raw script strings or comments.
+$attributeWarnings = 0;
+set_error_handler(function() use (&$attributeWarnings) {
+    ++$attributeWarnings;
+    return true;
+});
+foreach(array('&#x0;', '&#x0', '&#0;', '&#x0000;', '&#'.str_repeat('9', 1000).';') as $zeroReference)
+{
+    $t->assert(VonSEO_Utils::htmlAttribute($zeroReference) === $zeroReference && $attributeWarnings === 0,
+        'Invalid zero/oversized numeric references stay literal without warnings');
+}
+restore_error_handler();
+$headMeta = new VonSEO_Meta(new VonSEO_Robots(), new VonSEO_Social(), new VonSEO_Schema($url));
+$htmlCases = array(
+    'spaced attributes' => '<link rel = "canonical" href="https://example.com/old"><meta name = "robots" content="noindex">',
+    'unquoted attributes' => '<LINK REL=canonical HREF=https://example.com/old><META NAME=robots CONTENT=noindex>',
+    'entity values and relation tokens' => '<link rel="alternate CANONICAL" href="old"><meta name="rob&#111;ts" content="noindex">',
+    'legacy numeric references' => '<meta name="descr&#105ption" content="old"><link rel="canon&#105cal" href="old">',
+    'legacy hex references' => '<meta name="ro&#x62ots" content="noindex"><script class="vonseo&#45schema">{}</script>',
+    'quoted greater-than' => '<meta name="description" content="old > tail"><link rel="canonical" href="old">',
+    'marked schema' => '<script class = "extra vonseo-schema" type="application/ld+json">{"value":"<meta name=robots>"}</script>',
+    'unquoted marked schema' => '<script class=vonseo-schema>{}</script>'
+);
+foreach($htmlCases as $caseName => $oldTags)
+{
+    $document = '<html><head><title>Old</title>'.$oldTags.'</head><body>Keep body</body></html>';
+    $t->assert($headMeta->stripOwnedTags($document) === '<html><head><title>Old</title></head><body>Keep body</body></html>',
+        'Owned metadata removes only complete head tags: '.$caseName);
+    $renderedDocument = (new VonSEO_Core())->render($document);
+    $t->assert(substr_count($renderedDocument, 'rel="canonical"') === 1 &&
+        substr_count($renderedDocument, 'name="robots"') === 1 &&
+        strpos($renderedDocument, 'tail">') === false &&
+        substr($renderedDocument, strpos($renderedDocument, '</head>')) === '</head><body>Keep body</body></html>',
+        'Core replaces metadata without duplicates or head damage: '.$caseName);
+}
+$untouchedHeadParts = array(
+    '<script>var tpl="</head><title>Fake</title>"; var meta=\'<meta name="description" content="example">\';</script>',
+    '<script type="text/plain"><!--<script></script></head><meta name=robots content=noindex></script>',
+    '<script><!--<SCRIPT >fake</sCrIpT ></head><a href="thread-10.html">Raw</a></script>',
+    '<script><!--<script>fake -->var text="</head>";</script>',
+    '<script>var text="</head>";</script data-ignored="quoted > value">',
+    '<style>.sample:after { content: "</head><meta name=robots>"; }</style>',
+    '<!-- </head><title>Comment</title><meta name="robots" content="noindex"> -->',
+    '<meta data-name="description" name="theme-option" content="keep > value">',
+    '<link data-rel="canonical" rel="stylesheet" href="theme.css">',
+    '<script data-class="vonseo-schema">var untouched=true;</script>',
+    '<script class="my-vonseo-schema">var untouched=true;</script>',
+    '<script type="application/ld+json">{"@type":"Organization"}</script>',
+    '<template><title>Template</title><meta name=robots content=noindex></template>',
+    '<meta name="theme" content="literal </head> and > value">'
+);
+foreach($untouchedHeadParts as $part)
+{
+    $document = '<html><head>'.$part.'<title>Old</title></head><body>Keep body</body></html>';
+    $t->assert($headMeta->stripOwnedTags($document) === $document, 'Unrelated and raw-text head content stays byte-identical');
+    $renderedDocument = (new VonSEO_Core())->render($document);
+    $t->assert(strpos($renderedDocument, $part) !== false &&
+        strpos($renderedDocument, '<title>Price $1.00 \\1 $0 - Community Forum</title>') !== false &&
+        strpos($renderedDocument, '<!-- VonSEO -->') > strpos($renderedDocument, $part),
+        'Core edits real title and inserts outside raw text/comments/quoted attributes');
+}
+$bodyMetadata = '<body><meta name="description" content="body">'
+    .'<script>var tpl="</head>";</script><a href="thread-10.html">Body</a></body></html>';
+$bodyDocument = '<html><head><title>Old</title></head>'.$bodyMetadata;
+$bodyRendered = (new VonSEO_Core())->render($bodyDocument);
+$t->assert(substr($bodyRendered, strpos($bodyRendered, '<body>')) === $bodyMetadata,
+    'SEO cleanup preserves the entire body byte-for-byte');
+$titlelessDocument = '<html><HEAD data-example="a > b"><script>var fake="<title>Fake</title>";</script></HEAD><body>Keep</body></html>';
+$titlelessRendered = (new VonSEO_Core())->render($titlelessDocument);
+$t->assert(strpos($titlelessRendered, '<title>Price $1.00 \\1 $0 - Community Forum</title>') !== false &&
+    strpos($titlelessRendered, 'var fake="<title>Fake</title>";') !== false,
+    'Missing real title is inserted without replacing a JavaScript title literal');
+foreach(array('<div>Fragment</div>', '<!-- <head></head> --><body>Keep</body>',
+    '<html><head><script>var neverClosed="</head>";', '<html><head><meta name="robots" content="unterminated>',
+    '<html><body><head></head></body></html>') as $incompleteDocument)
+{
+    $t->assert((new VonSEO_Core())->render($incompleteDocument) === $incompleteDocument,
+        'Missing or incomplete explicit head is left unchanged');
+}
+$replaceOwnedBefore = isset($GLOBALS['mybb']->settings['vonseo_replace_existing_meta']) ? $GLOBALS['mybb']->settings['vonseo_replace_existing_meta'] : null;
+$GLOBALS['mybb']->settings['vonseo_replace_existing_meta'] = '0';
+$preservedMetaDocument = '<html><head><title>Old</title><meta name="description" content="custom"></head><body>Keep</body></html>';
+$t->assert(strpos((new VonSEO_Core())->render($preservedMetaDocument), '<meta name="description" content="custom">') !== false,
+    'Disabling owned-tag replacement still preserves existing custom metadata');
+if($replaceOwnedBefore === null)
+{
+    unset($GLOBALS['mybb']->settings['vonseo_replace_existing_meta']);
+}
+else
+{
+    $GLOBALS['mybb']->settings['vonseo_replace_existing_meta'] = $replaceOwnedBefore;
+}
+$errorDocument = '<html><head>'.$untouchedHeadParts[0].'<title>Not found</title>'
+    .'<link rel = canonical href="old"><meta name = robots content=index></head><body>Missing</body></html>';
+$monitorBefore = isset($GLOBALS['mybb']->settings['vonseo_404_monitor']) ? $GLOBALS['mybb']->settings['vonseo_404_monitor'] : null;
+$GLOBALS['mybb']->settings['vonseo_404_monitor'] = '0';
+foreach(array(403, 404, 410) as $errorStatus)
+{
+    $GLOBALS['vonseo_forced_status'] = $errorStatus;
+    $errorRendered = (new VonSEO_Core())->render($errorDocument);
+    $t->assert(strpos($errorRendered, $untouchedHeadParts[0]) !== false &&
+        strpos($errorRendered, '<title>Not found</title>') !== false &&
+        substr_count($errorRendered, '<meta name="robots" content="noindex,follow" />') === 1 &&
+        strpos($errorRendered, 'rel = canonical') === false &&
+        strpos($errorRendered, '<!-- VonSEO error guard -->') > strpos($errorRendered, $untouchedHeadParts[0]),
+        'Error '.$errorStatus.' guard injects outside JavaScript and preserves error title');
+}
+unset($GLOBALS['vonseo_forced_status']);
+if($monitorBefore === null)
+{
+    unset($GLOBALS['mybb']->settings['vonseo_404_monitor']);
+}
+else
+{
+    $GLOBALS['mybb']->settings['vonseo_404_monitor'] = $monitorBefore;
+}
+
+// Image configuration is validated before canonical URL normalization.
+$validImages = array(
+    'https://cdn.example/image.png' => 'https://cdn.example/image.png',
+    'http://cdn.example/image.png?size=large&crop=1' => 'http://cdn.example/image.png?size=large&crop=1',
+    '//cdn.example/image.png' => 'https://cdn.example/image.png',
+    'images/social.png' => 'https://example.com/forum/images/social.png',
+    '/forum/images/social.png' => 'https://example.com/forum/images/social.png',
+    ' images/social.png ' => 'https://example.com/forum/images/social.png',
+    'https://cdn.example/image.png?x=1&amp;y=2' => 'https://cdn.example/image.png?x=1&y=2'
+);
+foreach($validImages as $inputImage => $expectedImage)
+{
+    $t->assert($url->image($inputImage) === $expectedImage, 'Safe HTTP(S)/board-relative image is retained: '.$inputImage);
+}
+$invalidImages = array('', 'javascript:alert(1)', 'data:image/png;base64,AAA', 'ftp://cdn.example/image.png',
+    '/https://cdn.example/image.png', '/javascript:alert(1)', 'http:relative.png',
+    'https://user:pass@cdn.example/image.png', '//user:pass@cdn.example/image.png',
+    'https://@cdn.example/image.png', 'https://cdn.example/image.png' . "\r\n" . 'x-header: secret',
+    "\timages/social.png", 'https://cdn.example/im age.png', 'https://cdn.example/image%0a.png',
+    'https://cdn.example/image&#10;.png', 'https://cdn.example\\image.png', 'https://cdn.example/image%5c.png');
+$invalidImages[] = 'javascript&#58alert(1)';
+$invalidImages[] = 'https://cdn.example/image&#10.png';
+foreach($invalidImages as $inputImage)
+{
+    $t->assert($url->image($inputImage) === '', 'Unsafe image URL is omitted without being disguised as a local path');
+}
+$imageSettingBefore = $GLOBALS['mybb']->settings['vonseo_default_image'];
+$logoSettingBefore = isset($GLOBALS['mybb']->settings['vonseo_organization_logo']) ? $GLOBALS['mybb']->settings['vonseo_organization_logo'] : null;
+$imageScriptBefore = $_SERVER['SCRIPT_NAME'];
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$GLOBALS['mybb']->settings['vonseo_default_image'] = 'https://user:pass@cdn.example/image.png';
+$GLOBALS['mybb']->settings['vonseo_organization_logo'] = 'javascript:alert(1)';
+$imageContext = (new VonSEO_Context($url))->resolve();
+$imageSchema = $schema->build($imageContext);
+$imageTags = array_column($social->tags($imageContext), 2, 1);
+$t->assert($imageContext->socialImage === '' && !isset($imageTags['og:image']) && !isset($imageTags['twitter:image']) &&
+    !isset($imageSchema['@graph'][0]['publisher']['logo']), 'Invalid configured image/logo cannot enter Open Graph, Twitter or publisher schema');
+$GLOBALS['mybb']->settings['vonseo_default_image'] = 'images/social.png';
+$GLOBALS['mybb']->settings['vonseo_organization_logo'] = 'images/organization.png';
+$imageContext = (new VonSEO_Context($url))->resolve();
+$imageSchema = $schema->build($imageContext);
+$t->assert($imageContext->socialImage === 'https://example.com/forum/images/social.png' &&
+    $imageSchema['@graph'][0]['publisher']['logo']['url'] === 'https://example.com/forum/images/organization.png',
+    'Valid relative social image and Organization logo keep their public resolved URLs');
+$imageInputBefore = $GLOBALS['mybb']->input;
+$memberProfileBefore = isset($GLOBALS['memprofile']) ? $GLOBALS['memprofile'] : null;
+$_SERVER['SCRIPT_NAME'] = '/member.php';
+$GLOBALS['mybb']->input = array('action' => 'profile', 'uid' => 9);
+$GLOBALS['memprofile'] = array('uid' => 9, 'username' => 'Profile Test', 'avatar' => 'https://user:pass@cdn.example/avatar.png');
+$avatarContext = (new VonSEO_Context($url))->resolve();
+$t->assert($avatarContext->socialImage === 'https://example.com/forum/images/social.png',
+    'Unsafe profile avatar falls back to the validated default social image');
+$GLOBALS['memprofile']['avatar'] = 'https://cdn.example/avatar.png';
+$t->assert((new VonSEO_Context($url))->resolve()->socialImage === 'https://cdn.example/avatar.png',
+    'Valid profile avatar remains the preferred social image');
+$GLOBALS['mybb']->settings['vonseo_default_image'] = '';
+$GLOBALS['memprofile']['avatar'] = 'data:image/png;base64,AAA';
+$t->assert((new VonSEO_Context($url))->resolve()->socialImage === '',
+    'Unsafe avatar with no configured fallback emits no image');
+$GLOBALS['mybb']->input = $imageInputBefore;
+if($memberProfileBefore === null)
+{
+    unset($GLOBALS['memprofile']);
+}
+else
+{
+    $GLOBALS['memprofile'] = $memberProfileBefore;
+}
+foreach(array('https://example.com', 'https://example.com/forum/nested') as $imageBase)
+{
+    $imageUrl = new VonSEO_Url($imageBase);
+    $t->assert($imageUrl->image('images/social.png') === $imageBase.'/images/social.png',
+        'Relative image resolution supports domain-root and nested-subfolder bases');
+    $t->assert($imageUrl->image('https://user:pass@cdn.example/image.png') === '' &&
+        $imageUrl->image('javascript:alert(1)') === '', 'Image validation does not depend on forum installation depth');
+}
+$_SERVER['SCRIPT_NAME'] = $imageScriptBefore;
+$GLOBALS['mybb']->settings['vonseo_default_image'] = $imageSettingBefore;
+if($logoSettingBefore === null)
+{
+    unset($GLOBALS['mybb']->settings['vonseo_organization_logo']);
+}
+else
+{
+    $GLOBALS['mybb']->settings['vonseo_organization_logo'] = $logoSettingBefore;
+}
 $scriptSafeContext = new VonSEO_Context($url);
 $scriptSafeContext->type = 'announcement';
 $scriptSafeContext->indexable = true;
@@ -1737,7 +1980,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.0.7', 'Source plugin metadata matches the 1.0.7 release');
+$t->assert(vonseo_info()['version'] === '1.0.8', 'Source plugin metadata matches the 1.0.8 release');
 $pluginSource = file_get_contents(MYBB_ROOT.'inc/plugins/vonseo.php');
 $t->assert(strpos($pluginSource, "add_hook('postbit_announcement', 'vonseo_capture_guest_announcement'") !== false,
     'Announcement text capture is registered on MyBB postbit_announcement');
@@ -1785,6 +2028,7 @@ $t->assert(vonseo_capture_guest_announcement($renderedAnnouncement) === $rendere
 $announcementContext = (new VonSEO_Context($url))->resolve();
 $announcementSchema = $schema->build($announcementContext);
 $announcementArticle = isset($announcementSchema['@graph'][0]) ? $announcementSchema['@graph'][0] : array();
+$GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewprofiles' => 1));
 $announcementTags = $social->tags($announcementContext);
 $announcementTagMap = array();
 foreach($announcementTags as $tag)
@@ -1807,7 +2051,7 @@ $t->assert(isset($announcementArticle['@type'], $announcementArticle['articleBod
 $t->assert(isset($announcementTagMap['og:type'], $announcementTagMap['article:published_time'],
     $announcementTagMap['article:section'], $announcementTagMap['article:author']) &&
     $announcementTagMap['og:type'] === 'article' && $announcementTagMap['article:section'] === 'Public Forum' &&
-    $announcementTagMap['article:author'] === 'Vondereich',
+    $announcementTagMap['article:author'] === 'https://example.com/forum/member.php?action=profile&uid=7',
     'Announcement emits article social metadata for its public forum');
 
 $GLOBALS['mybb']->input = array('aid' => 31);
@@ -2211,6 +2455,28 @@ $t->assert(strpos($rewritten, 'href="showthread.php?mode=threaded&amp;tid=10&amp
     strpos($rewritten, 'href="showthread.php?tid=13"') !== false &&
     strpos($rewritten, 'href="https://attacker.example/forum/showthread.php?tid=10"') !== false, 'Display-mode, post-only, hidden and external links remain untouched');
 $t->assert($keyword->rewriteHtml($navHtml, 'search.php') === $navHtml, 'Unreviewed MyBB page contexts are not rewritten');
+$portalWorker = new VonSEO_Keyword($url);
+$t->assert($portalWorker->rewriteHtml($navHtml, 'portal.php') === $rewritten,
+    'Portal thread, last-post, forum, page and exact-post links share Index keyword URLs and privacy gates');
+$rawAnchorParts = '<script>var tpl=\'<a href="thread-10.html">Template</a>\';</script>'
+    .'<script><!--<script></script><a href="thread-10.html">Double escaped</a></script>'
+    .'<style>.sample:after { content: \'<a href="thread-10.html">\'; }</style>'
+    .'<!-- <a href="thread-10.html">Comment</a> -->'
+    .'<textarea><a href="thread-10.html">Text</a></textarea>'
+    .'<a data-href="thread-10.html" href="https://outside.example/">Outside</a>';
+$realAnchorParts = '<a title="quoted > value" href = thread-10.html>Unquoted</a>'
+    .'<A HREF = \'thread-10-lastpost.html\'>Last post</A>'
+    .'<a href="thread-10.html" data-title=keep>Thread</a>';
+$anchorOutput = (new VonSEO_Keyword($url))->rewriteHtml($rawAnchorParts.$realAnchorParts, 'portal.php');
+$t->assert(strpos($anchorOutput, $rawAnchorParts) === 0 &&
+    strpos($anchorOutput, 'title="quoted > value" href = "https://example.com/forum/t-10-caf%C3%A9-teh"') !== false &&
+    strpos($anchorOutput, "HREF = 'https://example.com/forum/t-10-caf%C3%A9-teh--lastpost'") !== false &&
+    strpos($anchorOutput, 'data-title=keep') !== false,
+    'Portal rewriting edits real hrefs only and preserves script/style/comments/textarea and unrelated attributes');
+$entityAnchor = '<a href="thread-10&#46html">Legacy entity</a>';
+$t->assert((new VonSEO_Keyword($url))->rewriteHtml($entityAnchor, 'portal.php') ===
+    '<a href="https://example.com/forum/t-10-caf%C3%A9-teh">Legacy entity</a>',
+    'Browser-equivalent legacy numeric attribute reference resolves to a keyword link');
 
 // Post eligibility must depend on both IDs, not the first link using a PID.
 $GLOBALS['raw_thread_cache'][7001] = array('tid' => 7001, 'fid' => 2, 'subject' => 'Thread A', 'visible' => 1, 'closed' => '');
@@ -2299,6 +2565,29 @@ for($lookupTid = 100; $lookupTid < 200; $lookupTid++)
 $GLOBALS['test_get_thread_count'] = 0;
 $keyword->rewriteHtml($lookupHtml, 'index.php');
 $t->assert($GLOBALS['test_get_thread_count'] <= 10, 'Keyword fallback thread lookups stay bounded on link-heavy pages');
+$GLOBALS['test_get_thread_count'] = 0;
+(new VonSEO_Keyword($url))->rewriteHtml($lookupHtml, 'portal.php');
+$t->assert($GLOBALS['test_get_thread_count'] === 10, 'Portal keyword fallback keeps the ten-thread query budget');
+$largePortalHtml = '';
+for($portalTid = 9801; $portalTid <= 9812; ++$portalTid)
+{
+    $GLOBALS['raw_thread_cache'][$portalTid] = array('tid' => $portalTid, 'fid' => 2,
+        'subject' => 'Portal Topic '.$portalTid, 'visible' => 1, 'closed' => '');
+    $largePortalHtml .= '<a href="thread-'.$portalTid.'.html">Topic</a>'
+        .'<a href="thread-'.$portalTid.'-lastpost.html">Last post</a>';
+}
+$GLOBALS['test_get_thread_count'] = 0;
+$largePortalOutput = (new VonSEO_Keyword($url))->rewriteHtml($largePortalHtml, 'portal.php');
+$t->assert($GLOBALS['test_get_thread_count'] === 10 &&
+    substr_count($largePortalOutput, 'href="https://example.com/forum/t-') === 20,
+    'Ten public Portal threads and repeated last-post links share the bounded lookup cache');
+$t->assert(strpos($largePortalOutput, 'href="thread-9811.html"') !== false &&
+    strpos($largePortalOutput, 'href="thread-9812-lastpost.html"') !== false,
+    'Large Portal listings retain working native links after the ten-thread fallback budget');
+for($portalTid = 9801; $portalTid <= 9812; ++$portalTid)
+{
+    unset($GLOBALS['raw_thread_cache'][$portalTid]);
+}
 
 $benchmarkKeywordRender = function($enabled, $html, $iterations) use ($url) {
     $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = $enabled ? '1' : '0';
@@ -2353,6 +2642,8 @@ $actionRollback = $keyword->redirectDecision('/forum/t-10-old-title--lastpost', 
 $t->assert($actionRollback === array('location' => 'https://example.com/forum/showthread.php?tid=10&action=lastpost', 'status' => 302), 'Disabling keyword URLs rolls dynamic actions back to native MyBB URLs');
 $t->assert($keyword->redirectDecision('/forum/showthread.php?tid=10', 'GET', 'showthread.php', $publicThread, $publicForum) === false, 'Stock URL remains stable after rollback');
 $t->assert($keyword->rewriteHtml($navHtml, 'index.php') === $navHtml, 'Disabling keyword URLs stops navigation rewriting');
+$t->assert((new VonSEO_Keyword($url))->rewriteHtml($navHtml, 'portal.php') === $navHtml,
+    'Keyword URLs OFF preserves Portal native links for rollback');
 $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '1';
 $t->assert($keyword->redirectDecision('/forum/t-10-old-title', 'GET', 'showthread.php', $publicThread, $publicForum)['status'] === 301, 'Re-enabling resumes old-slug migration without a database table');
 $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';

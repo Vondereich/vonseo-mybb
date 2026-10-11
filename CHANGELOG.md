@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.8 - 2026-10-11
+
+- Include Portal latest-thread, announcement-thread, last-post and forum links in keyword navigation rewriting. Preserve guest visibility checks, the ten-thread/post fallback lookup limits, Portal's own canonical and keyword-OFF rollback behavior.
+- Replace whole-document metadata/head regular expressions with byte-preserving HTML tag edits. Support spaced/unquoted attributes and quoted `>` values, preserve JavaScript/styles/comments/templates/body markup, match exact attribute names and schema class tokens, and inject only at an explicit real head closing tag. Incomplete head boundaries are left unchanged. The same tag-aware path rewrites real anchors without altering JavaScript link templates.
+- Validate public social-image, avatar and Organization-logo URLs before normalization. Reject credentials, controls, backslashes and unsupported schemes while retaining safe HTTP(S), protocol-relative CDN and board-relative URLs. Invalid avatars retain the existing default-image fallback; no URL fetch is performed.
+- Use profile URLs rather than usernames for Open Graph article authors. Emit author URLs only with profile indexing enabled and guest board/profile permission; missing permission cache fails closed. Thread schema author URLs share this boundary. No database migration or SEO-default change is required.
+- Add 113 focused rendering, image-validation, author-permission and Portal navigation regressions, including double-escaped script boundaries, legacy numeric attribute references and warning-free zero-reference handling.
+- Local PHP 8.3, 8.4 and 8.5 verification passes 34 PHP syntax checks and 768 regression/ACP checks per runtime. PHP 8.5 uses an isolated local CLI configuration. One independent reviewer reran PHP 8.4 and checked HTML5-parser counterexamples, with no remaining actionable finding in this patch. Package and installed-board verification are separate gates; this is not a full-plugin security certification or production crawler guarantee.
+
 ## 1.0.7 - 2026-10-08
 
 - Validate the resolved destination, not only the original input, before saving a manual redirect or importing CSV. Slash-prefixed absolute URLs such as `/https://outside.example/target` can no longer create non-working rules when external redirects are disabled.

@@ -79,27 +79,37 @@ class VonSEO_Meta
      */
     public function stripOwnedTags($html)
     {
-        // Canonical.
-        $html = preg_replace('#<link\b[^>]*\brel=(["\'])canonical\1[^>]*>\s*#i', '', $html);
+        return VonSEO_Html::editHead($html, function($tag, $original) {
+            return $this->ownsTag($tag) ? '' : $original;
+        });
+    }
 
-        // Name-based SEO tags.
-        $names = array(
-            'description',
-            'robots',
-            'twitter:card',
-            'twitter:title',
-            'twitter:description',
-            'twitter:image'
-        );
-        $namePattern = implode('|', array_map('preg_quote', $names));
-        $html = preg_replace('#<meta\b(?=[^>]*\bname=(["\'])(?:'.$namePattern.')\1)[^>]*>\s*#i', '', $html);
-
-        // Property-based Open Graph and Article tags.
-        $html = preg_replace('#<meta\b(?=[^>]*\bproperty=(["\'])(?:og:|article:)[^"\']+\1)[^>]*>\s*#i', '', $html);
-
-        // Only remove schema nodes explicitly marked as VonSEO.
-        $html = preg_replace('#<script\b[^>]*\bclass=(["\'])[^"\']*\bvonseo-schema\b[^"\']*\1[^>]*>.*?</script>\s*#is', '', $html);
-
-        return $html;
+    /** @return bool */
+    public function ownsTag(array $tag)
+    {
+        if($tag['closing'])
+        {
+            return false;
+        }
+        $attributes = $tag['attributes'];
+        if($tag['name'] === 'link' && isset($attributes['rel']))
+        {
+            $relations = preg_split('/\s+/', strtolower(trim($attributes['rel']['value'])));
+            return in_array('canonical', $relations, true);
+        }
+        if($tag['name'] === 'meta')
+        {
+            $name = isset($attributes['name']) ? strtolower($attributes['name']['value']) : '';
+            $property = isset($attributes['property']) ? strtolower($attributes['property']['value']) : '';
+            return in_array($name, array('description', 'robots', 'twitter:card', 'twitter:title',
+                'twitter:description', 'twitter:image'), true) ||
+                strpos($property, 'og:') === 0 || strpos($property, 'article:') === 0;
+        }
+        if($tag['name'] === 'script' && $tag['complete'] && isset($attributes['class']))
+        {
+            $classes = preg_split('/\s+/', trim($attributes['class']['value']));
+            return in_array('vonseo-schema', $classes, true);
+        }
+        return false;
     }
 }

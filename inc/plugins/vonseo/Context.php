@@ -629,7 +629,7 @@ class VonSEO_Context
 
         if(!empty($profile['avatar']))
         {
-            $this->socialImage = $this->url->absolute($profile['avatar']);
+            $this->socialImage = $this->url->image($profile['avatar']);
         }
         if($this->socialImage === '')
         {
@@ -818,8 +818,7 @@ class VonSEO_Context
 
     protected function defaultImage()
     {
-        $image = trim(VonSEO_Utils::setting('vonseo_default_image'));
-        return $image !== '' ? $this->url->absolute($image) : '';
+        return $this->url->image(VonSEO_Utils::setting('vonseo_default_image'));
     }
 
     protected function boardName()

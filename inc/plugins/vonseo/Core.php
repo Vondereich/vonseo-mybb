@@ -26,7 +26,7 @@ class VonSEO_Core
         }
 
         // Only work on actual HTML documents with a head.
-        if(stripos($html, '<head') === false || stripos($html, '</head>') === false)
+        if(!VonSEO_Html::hasHead($html))
         {
             return $html;
         }
@@ -38,10 +38,7 @@ class VonSEO_Core
 
         $status = VonSEO_Errors::prepareResponse();
 
-        if(VonSEO_Utils::setting('vonseo_replace_existing_meta', 1))
-        {
-            $html = $meta->stripOwnedTags($html);
-        }
+        $replaceOwned = (bool)VonSEO_Utils::setting('vonseo_replace_existing_meta', 1);
 
         // Error and permission pages must never inherit private entity SEO.
         // Preserve MyBB's error title and inject only a crawler directive.
@@ -49,32 +46,17 @@ class VonSEO_Core
         {
             $payload = '<meta name="robots" content="noindex,follow" />';
             $marker = "\n<!-- VonSEO error guard -->\n".$payload."\n<!-- /VonSEO -->\n";
-            return preg_replace_callback('#</head>#i', function() use ($marker) {
-                return $marker.'</head>';
-            }, $html, 1);
+            return VonSEO_Html::editHead($html, function($tag, $original) use ($meta, $replaceOwned) {
+                return $replaceOwned && $meta->ownsTag($tag) ? '' : $original;
+            }, $marker);
         }
 
         $context = new VonSEO_Context($this->url);
         $context->resolve();
 
         // Do not add entity titles to password/permission/noindex pages.
-        if($context->indexable && $context->title !== '')
-        {
-            $title = '<title>'.VonSEO_Utils::h($context->title).'</title>';
-
-            if(preg_match('#<title\b[^>]*>.*?</title>#is', $html))
-            {
-                $html = preg_replace_callback('#<title\b[^>]*>.*?</title>#is', function() use ($title) {
-                    return $title;
-                }, $html, 1);
-            }
-            else
-            {
-                $html = preg_replace_callback('#(<head\b[^>]*>)#i', function($match) use ($title) {
-                    return $match[1]."\n".$title;
-                }, $html, 1);
-            }
-        }
+        $title = $context->indexable && $context->title !== ''
+            ? '<title>'.VonSEO_Utils::h($context->title).'</title>' : '';
 
         $payload = $meta->render($context);
         if($payload === '')
@@ -83,10 +65,20 @@ class VonSEO_Core
         }
 
         $marker = "\n<!-- VonSEO -->\n".$payload."\n<!-- /VonSEO -->\n";
-        $html = preg_replace_callback('#</head>#i', function() use ($marker) {
-            return $marker.'</head>';
-        }, $html, 1);
-
-        return $html;
+        $titleWritten = false;
+        return VonSEO_Html::editHead($html, function($tag, $original) use ($meta, $replaceOwned, $title, &$titleWritten) {
+            if($replaceOwned && $meta->ownsTag($tag))
+            {
+                return '';
+            }
+            if($title !== '' && !$titleWritten && $tag['name'] === 'title' && !$tag['closing'] && $tag['complete'])
+            {
+                $titleWritten = true;
+                return $title;
+            }
+            return $original;
+        }, function() use ($title, &$titleWritten, $marker) {
+            return ($title !== '' && !$titleWritten ? "\n".$title : '').$marker;
+        });
     }
 }

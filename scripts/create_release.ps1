@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.7'
+    [string]$Version = '1.0.8'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +34,7 @@ $files = @(
     'inc/plugins/vonseo/Context.php',
     'inc/plugins/vonseo/Core.php',
     'inc/plugins/vonseo/Errors.php',
+    'inc/plugins/vonseo/Html.php',
     'inc/plugins/vonseo/IndexNow.php',
     'inc/plugins/vonseo/Keyword.php',
     'inc/plugins/vonseo/Meta.php',

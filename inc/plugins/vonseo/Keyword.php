@@ -142,30 +142,30 @@ class VonSEO_Keyword
     public function rewriteHtml($html, $script)
     {
         if(!$this->url->keywordUrlsEnabled() ||
-           !in_array($script, array('index.php', 'forumdisplay.php', 'showthread.php'), true))
+           !in_array($script, array('index.php', 'forumdisplay.php', 'showthread.php', 'portal.php'), true))
         {
             return $html;
         }
 
-        return preg_replace_callback('#(<a\b[^>]*?\shref\s*=\s*)(["\'])(.*?)\2#is', function($match)
+        return VonSEO_Html::rewriteAnchors($html, function($href)
         {
-            $link = $this->parseLink(html_entity_decode($match[3], ENT_QUOTES, 'UTF-8'));
+            $link = $this->parseLink($href);
             if(!$link)
             {
-                return $match[0];
+                return '';
             }
 
             $destination = $this->publicDestination($link);
             if($destination === '')
             {
-                return $match[0];
+                return '';
             }
 
             // threadPost() supplies a verified fragment derived from pid.
             // Other navigation retains the fragment MyBB originally emitted.
             $fragment = !empty($link['post']) ? '' : $link['fragment'];
-            return $match[1].$match[2].VonSEO_Utils::h($destination.$fragment).$match[2];
-        }, $html);
+            return $destination.$fragment;
+        });
     }
 
     /**

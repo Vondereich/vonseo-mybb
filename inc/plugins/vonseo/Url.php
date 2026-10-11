@@ -103,6 +103,45 @@ class VonSEO_Url
     }
 
     /**
+     * Resolve public image settings without publishing credentials or turning
+     * unsupported schemes into broken board-relative paths. Never fetch URLs.
+     * Relative paths retain absolute()'s existing board-root semantics.
+     *
+     * @param string $url
+     * @return string
+     */
+    public function image($url)
+    {
+        $url = VonSEO_Utils::htmlAttribute(trim((string)$url, ' '));
+        if($url === '' || preg_match('/[\x00-\x20\x7f\\\\]/', $url) ||
+           preg_match('/%(?:0[0-9a-f]|1[0-9a-f]|7f|5c)/i', $url))
+        {
+            return '';
+        }
+        $parts = @parse_url($url);
+        if(!is_array($parts) || isset($parts['user']) || isset($parts['pass']) ||
+           (isset($parts['scheme']) && !in_array(strtolower($parts['scheme']), array('http', 'https'), true)))
+        {
+            return '';
+        }
+        // Do not disguise slash-prefixed schemes as local image paths.
+        if(!isset($parts['host']) && preg_match('~^[a-z][a-z0-9+.-]*:~i', ltrim($url, '/')))
+        {
+            return '';
+        }
+        $resolved = $this->absolute($url);
+        $parts = @parse_url($resolved);
+        if(!is_array($parts) || empty($parts['host']) || empty($parts['scheme']) ||
+           !in_array(strtolower($parts['scheme']), array('http', 'https'), true) ||
+           isset($parts['user']) || isset($parts['pass']) ||
+           filter_var($resolved, FILTER_VALIDATE_URL) === false)
+        {
+            return '';
+        }
+        return $resolved;
+    }
+
+    /**
      * @param int|string $tid
      * @param int|string $page
      * @param string|null $subject
@@ -343,6 +382,28 @@ class VonSEO_Url
     public function profile($uid)
     {
         return $this->absolute(get_profile_link((int)$uid));
+    }
+
+    /**
+     * Author links are optional and must use the guest baseline, not the
+     * current administrator/member's permissions. Missing cache fails closed.
+     *
+     * @param int|string $uid
+     * @return string
+     */
+    public function publicProfile($uid)
+    {
+        global $cache;
+        if((int)$uid <= 0 || !VonSEO_Utils::setting('vonseo_profile_index', 0))
+        {
+            return '';
+        }
+        $groups = is_object($cache) && method_exists($cache, 'read') ? $cache->read('usergroups') : false;
+        if(!is_array($groups) || empty($groups[1]['canview']) || empty($groups[1]['canviewprofiles']))
+        {
+            return '';
+        }
+        return $this->profile($uid);
     }
 
     /**

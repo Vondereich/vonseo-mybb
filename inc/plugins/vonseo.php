@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.0.7
+ * @version 1.0.8
  */
 
 if(!defined('IN_MYBB'))
@@ -828,6 +828,7 @@ function vonseo_require_core()
     require_once $base.'Utils.php';
     require_once $base.'State.php';
     require_once $base.'Url.php';
+    require_once $base.'Html.php';
     require_once $base.'Keyword.php';
     require_once $base.'Redirects.php';
     require_once $base.'Errors.php';

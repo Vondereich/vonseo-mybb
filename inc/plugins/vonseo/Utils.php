@@ -6,7 +6,7 @@ if(!defined('IN_MYBB'))
 
 if(!defined('VONSEO_VERSION'))
 {
-    define('VONSEO_VERSION', '1.0.7');
+    define('VONSEO_VERSION', '1.0.8');
 }
 
 class VonSEO_Utils
@@ -169,6 +169,31 @@ class VonSEO_Utils
         }
 
         return $guestCanView === true;
+    }
+
+    /**
+     * Decode attribute values, including ASCII numeric references without a
+     * semicolon. Browsers accept these legacy forms in SEO names and URLs.
+     * This is deliberately not a complete HTML5 error-recovery parser.
+     *
+     * @param string $value
+     * @return string
+     */
+    public static function htmlAttribute($value)
+    {
+        $value = preg_replace_callback('/&#(?:x([0-9a-f]+)|([0-9]+));?/i', function($match) {
+            $hex = isset($match[1]) && $match[1] !== '';
+            $digits = ltrim($hex ? $match[1] : $match[2], '0');
+            // Only ASCII needs legacy normalization for ownership/scheme names.
+            // Bound conversion even if an attribute contains thousands of digits.
+            if($digits === '' || strlen($digits) > ($hex ? 2 : 3))
+            {
+                return $match[0];
+            }
+            $code = intval($digits, $hex ? 16 : 10);
+            return $code > 0 && $code <= 127 ? '&#'.$code.';' : $match[0];
+        }, (string)$value);
+        return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 
     /**
