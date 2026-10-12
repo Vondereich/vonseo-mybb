@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Development version: **1.1.0-beta.5**. Latest stable release: **1.0.8**. This beta adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test on staging before use; stable approval and publication are separate steps. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Stable version: **1.1.0**. This release adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
@@ -93,7 +93,7 @@ Recommended starting policy:
 - test AI crawler choices against your site's publishing policy;
 - enable keyword URLs only after the direct-route test described below passes.
 
-## SEO Controls and previews (1.1.0 beta)
+## SEO Controls and previews (1.1.0)
 
 Open ACP > Configuration > VonSEO > **SEO Controls**. Administrators need both VonSEO module access and the separate **Can manage VonSEO forum/thread SEO overrides and previews?** permission. Redirect/404 access alone does not grant this permission.
 
@@ -108,7 +108,7 @@ Noindex entities are omitted from their forum/thread sitemap entries and eligibl
 
 MyBB's Guest access restrictions take precedence over SEO settings. IndexNow pauses when the board requires login, Guest cannot view the board, or the board is closed without Guest permission to view it. Current and historical removal queue entries are retained without spending retries until Guest access returns. Calendar/event sitemap entries additionally require the calendar feature, global Guest calendar access and the calendar-specific permission; a specific grant cannot bypass a global denial. These checks do not reverse URL disclosures that happened before the patch.
 
-Upgrade: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. Do not rely on a beta-only override for privacy. Uninstall permanently removes the override table.
+Upgrade from 1.0.8 or a 1.1.0 beta: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. SEO noindex is not privacy protection; use MyBB permissions to restrict access. Uninstall permanently removes the override table.
 
 ## Apache setup: using the `extras` files
 
@@ -545,9 +545,9 @@ Correct MyBB's **Board URL** in Site Details. VonSEO deliberately trusts that co
 - The plugin does not promise search rankings.
 - Optional `SearchAction` markup is retained for compatibility, but is off by default for new installs. Google's Sitelinks Search Box result was retired in 2024.
 
-## 1.0 scope
+## Scope and limitations
 
-Version 1.0.0 keeps the broader content coverage from 0.6 and adds fail-closed IndexNow removals, retry boundaries that new content cannot bypass, stable logged-in calendar/event identity, current-month canonical consolidation, trustworthy event sitemap dates, safer clean-route rewrite selectors and serialized admission for new 404 rows. It does not include profile sitemaps or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
+Version 1.1.0 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
 
 ## Contributor checks
 

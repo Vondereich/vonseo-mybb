@@ -2004,7 +2004,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.1.0-beta.5', 'Source plugin metadata matches the 1.1.0 beta build');
+$t->assert(vonseo_info()['version'] === '1.1.0', 'Source plugin metadata matches the 1.1.0 stable build');
 $adminLayout = file_get_contents(dirname(__DIR__).'/admin/modules/config/vonseo.php');
 $t->assert(strpos($adminLayout, 'vs-table-wrap vs-table-site-details') !== false && strpos($adminLayout, '.vs-table-site-details table{width:100%;min-width:0;table-layout:fixed}') !== false,
     'Site Details opts out of the generic 680px list-table minimum');

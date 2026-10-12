@@ -1,10 +1,10 @@
 # VonSEO MyBB Roadmap
 
-Last updated: 2026-10-12.
+Last updated: 2026-10-13.
 
-Current stable release: **1.0.8**. Development build: **1.1.0-beta.5 - SEO Controls & Preview**.
+Current stable version: **1.1.0 - SEO Controls & Preview**.
 
-This roadmap separates released behavior, the agreed next-release scope and deferred candidates. The 1.1.0 scope is implemented in a development beta, not stable-release approved. No release date or search-ranking result is promised. Historical verification below describes those builds, not every deployment of the current plugin. See [CHANGELOG.md](../CHANGELOG.md) for individual maintenance changes.
+This roadmap separates delivered behavior and deferred candidates. The agreed 1.1.0 scope is complete and approved for the stable build. No future release date or search-ranking result is promised. Historical verification below describes those builds, not every deployment of the current plugin. See [CHANGELOG.md](../CHANGELOG.md) for individual maintenance changes.
 
 ## Released milestones
 
@@ -137,52 +137,48 @@ This roadmap separates released behavior, the agreed next-release scope and defe
 - Use guest-visible, opt-in profile URLs for article authors and thread schema author URLs instead of emitting usernames as article URLs.
 - Keep schema 5, keyword/profile indexing defaults and MyBB site-identity ownership unchanged. The public upload ZIP has a 33-file allowlist; tests and private material are excluded.
 
-## v1.1.0 SEO Controls & Preview: beta in progress
+## v1.1.0 SEO Controls & Preview: completed
 
-The following scope has source implementation in 1.1.0-beta.5. The Inspector normalizes stock guest page ranges and distinguishes inactive engine candidates. Board-wide Guest gates now protect IndexNow and sitemap eligibility; calendar-specific grants cannot bypass global Guest calendar restrictions. Beta.4 closes the seven scoped correctness findings, including charset identity and concurrent-removal history follow-ups, with regression and isolated MySQL proofs. Beta.5 fixes the mobile Site Details overflow found during the release-gate pass. The Linux PHP matrix and native MySQL/MariaDB lifecycle checks have run successfully, and the real local restricted-account test passes 30 checks. Stable approval and publication still require the final-tree/package checks below. ACP automatic thread-description and schema snapshots do not execute the guest first-post renderer; the beta warns separately even when a description override is used. Management is ACP-only; URL schemes and existing site settings are not silently replaced.
+Version 1.1.0 delivers the forum/thread overrides, Inspector, illustrative previews and guidance below. It retains the verified beta.5 behavior without new features or another schema change. Guest permission gates, noindex precedence, storage/input boundaries, queue/history races and mobile Site Details have regression coverage. Management is ACP-only; URL schemes and existing MyBB site settings are not silently replaced. ACP does not execute a real guest first-post renderer, so its automatic-description and schema warnings remain intentional.
 
 ### 1. Forum and thread SEO overrides
 
-- Add optional SEO title, description and social-image overrides for individual forums and threads. Blank values retain existing automatic output and fallbacks.
-- Do not change MyBB thread subjects, forum names, canonical URLs or keyword slugs. Preserve pagination context in generated SEO titles.
-- Add an inherit/current-policy or `noindex` choice. An override may restrict indexing but must never make private, password-protected, inactive, deleted or unapproved content eligible.
-- Define forum/thread indexing precedence before implementation and use the effective policy consistently in metadata, sitemap eligibility and IndexNow delivery/removal handling. Keep public URL navigation separate from indexing policy.
-- Specify plugin-owned storage, migration and cache/query budgets before coding. Do not add fields to MyBB core tables or edit core files.
-- Use a scoped ACP permission for override management, protected POST saves, input/output validation and admin action logging. Basic redirect/404 access alone must not imply permission to change entity SEO.
+- Optional SEO title, description and social-image overrides for individual forums and threads. Blank fields retain automatic output and fallbacks.
+- Native thread subjects, forum names, canonical URLs and keyword slugs remain unchanged; paginated SEO titles retain Page X.
+- Existing-policy or `noindex` choices can only restrict indexing. They cannot make private, password-protected, inactive, deleted or unapproved content eligible.
+- A forum noindex policy covers directly contained threads, not subforums. Thread overrides cannot bypass that policy or MyBB Guest permissions. Metadata, sitemap and IndexNow share the resolved policy.
+- Plugin-owned schema 6 storage uses indexed, request-cached lookups and idempotent migration. No fields are added to MyBB core tables.
+- A dedicated ACP permission protects override management, with POST/token validation, escaped output and admin action logging. Redirect/404 access alone does not grant entity SEO access.
 
 ### 2. Read-only SEO Inspector
 
-- Inspect a supported forum/thread by its board entity identity and show expected canonical, robots, description, social image and schema eligibility.
-- Identify whether each value comes from an entity override, existing automatic content or a global fallback.
-- Distinguish optional missing configuration, invalid configured values and permission/indexing exclusions. Do not expose private post excerpts or imply that a local preview proves crawler access.
-- Bound lookups and keep inspection read-only. No arbitrary URL fetch, automatic full-site crawl, redirect hit update or IndexNow submission.
-- Label expected resolved output separately from real HTTP/rendered-page verification; this tool is not a search-engine indexing status report.
+- Inspection by forum/thread ID shows expected canonical, robots, description, social image and schema eligibility.
+- Source labels distinguish entity overrides, automatic content and global fallbacks.
+- Feedback separates missing optional configuration, invalid values and permission/indexing exclusions. Guest-inaccessible content is not previewed.
+- Inspection is bounded and read-only: no arbitrary URL fetch, automatic full-site crawl, redirect hit update or IndexNow submission.
+- Snapshots are explicitly separate from actual guest-page verification and search-engine indexing status.
 
 ### 3. Search and social previews
 
-- Show desktop/mobile-style title, URL, description and social-image previews before saving overrides, using the same validation and resolution policy as frontend output.
-- Label previews as illustrative, not pixel-exact or guaranteed search/social results. Google can choose different [title links](https://developers.google.com/search/docs/appearance/title-link) and [snippets](https://developers.google.com/search/docs/appearance/snippet).
-- Do not create fabricated images, descriptions or structured-data facts merely to fill empty fields. Invalid image overrides must have explicit feedback and safe fallback behavior.
+- Validated unsaved drafts show desktop/mobile-style search cards and a social card before saving.
+- Previews are illustrative, not pixel-exact or guaranteed results. Google can choose different [title links](https://developers.google.com/search/docs/appearance/title-link) and [snippets](https://developers.google.com/search/docs/appearance/snippet).
+- Empty optional images remain empty; invalid images have explicit feedback and safe fallback. No images or structured-data facts are fabricated to fill a preview.
 
 ### 4. ACP guidance and existing-setting preservation
 
-- Explain that Board Name/URL identify the forum while Homepage Name/URL may identify a separate parent site/publisher. Do not force the two pairs to match or automatically overwrite custom values.
-- Make Default Social Image guidance clear: an empty optional field is not a proven code defect; a configured but invalid URL needs actionable validation feedback.
-- Distinguish description-quality suggestions from syntax errors or release blockers. Keep one editable location for the homepage description and MyBB as the source of truth for existing identity settings.
-- Update installation/upgrade guidance and this roadmap to reflect delivered behavior rather than promises or duplicated future items.
+- Site Details explains the independent Board and parent Homepage identities without forced synchronization or automatic overwrites.
+- Default Social Image guidance distinguishes an empty optional field from a configured invalid URL.
+- The homepage description has one editable location. MyBB remains the source of truth for its original identity settings; description-quality suggestions are not syntax errors.
+- Installation, schema 6 upgrade and 1.0.8 rollback instructions are included. Mobile Site Details stacks labelled fields without widening the page.
 
-### Release gates before 1.1.0 stable
+### Verification boundaries
 
-- Fresh install and 1.0.8-to-1.1.0 upgrade pass on supported MySQL/MariaDB setups; migrations are idempotent and preserve existing settings, redirects and queue data.
-- Deactivate/reactivate preserves override data; uninstall removes only VonSEO-owned data/task state. Document and test rollback boundaries for the new storage before rollout.
-- Permission, method/token, SQL escaping, stored/reflected XSS, image URL validation and input-boundary regressions pass for every new ACP flow.
-- Public, private, passworded, inactive, deleted/unapproved content and guest-denied profiles remain protected. Exercise indexing-policy changes and queue races/removal history without reconstructing never-public URLs.
-- Metadata, canonical, Open Graph, schema, sitemap and IndexNow use consistent resolved policy. Blank overrides preserve current defaults; title pagination and keyword URL ON/OFF behavior remain intact.
-- Root and `/forum/` routing plus installed-theme desktop/mobile smoke tests pass for the changed paths. Separate actual Nginx/LiteSpeed runtime results from Apache and routing-fixture evidence; do not claim untested deployments.
-- Run the contributor checks, supported PHP CI matrix and relevant database checks; record actual results and any untested runtime rather than inferring compatibility from a newer PHP version.
-- Benchmark the added lookup/render overhead on ordinary pages and larger listings. Keep bounded queries; do not add an unbounded frontend scan or site-wide crawl.
-- One independent reviewer checks the completed scope after regressions; resolve release-blocking security/correctness findings before packaging. This is not a blanket security certification.
-- Verify version/documentation alignment and byte-matched public ZIP contents. Keep tests, private QC notes and backups out of the upload ZIP; publication is a separate explicitly authorized step.
+- Linux CI exercises plugin lint/self-contained checks on PHP 7.1-8.5, plus real SQL and native MyBB database-layer install/schema-upgrade/lifecycle checks on MySQL 8.0 and MariaDB 10.11. These are not separate full HTTP MyBB installations on every runtime or an exact historical-release clone.
+- Local MyBB/PHP 8.4 checks cover the new ACP flows with a restricted account, public/private/passworded/unapproved/inactive content, guest metadata/XML, and desktop/mobile changed-path rendering. The schema 5-to-6 boundary and rollback behavior have separate lifecycle/regression coverage.
+- Bounded warm-render measurements cover ordinary thread metadata and repeated internal anchors. They exclude full HTTP/bootstrap, cold caches and concurrent production load; do not treat them as a hosting performance guarantee.
+- Apache localhost and supplied routing fixtures do not prove a production Nginx/LiteSpeed deployment. Installed themes/custom plugins need their own staging checks; a theme's unrelated layout defect is not repaired by VonSEO.
+- Independent review and passing regressions are not blanket security certification or proof of IndexNow delivery, indexing, rankings or rich results. Public publication remains a separate step from building the stable package.
+- Public ZIPs use an explicit byte-verified allowlist and exclude tests, private QC notes and backups. Site owners should still back up before upgrading and verify their own deployment.
 
 ## Deployment checks for site owners
 

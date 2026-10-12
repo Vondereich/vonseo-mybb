@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 - 2026-10-13
+
+- Add ACP-only SEO title, description, social-image and restrictive noindex overrides for public forums and threads. Preserve native names, canonical URLs and keyword slugs; forum noindex applies to directly contained threads.
+- Add a read-only SEO Inspector with source labels, validated unsaved search/social previews and explicit engine-off, optional-image and guest-rendered description/schema warnings. Previews are illustrative, not search-engine results.
+- Share resolved indexing policy across metadata, forum/thread sitemap entries and IndexNow, with bounded asynchronous forum reconciliation and race-safe known-public removal history. MyBB Guest permissions always take precedence.
+- Add a dedicated override permission, protected POST save/reset/preview flows, validated storage and admin action logging. Harden redirect UTF-8/storage/control boundaries, one-use CSV report methods and public profile/calendar eligibility.
+- Add idempotent plugin-owned schema 6 storage. Upgrades and deactivation retain settings, redirects, queue and overrides; uninstall removes VonSEO-owned data. Document the 1.0.8 rollback boundary.
+- Fix mobile Overview Site Details with a fluid table and stacked labelled fields. No MyBB core or automatic server-configuration edits are required.
+- Promote the verified beta.5 behavior to stable without adding new features or changing schema/indexing defaults. PHP/Linux, native MySQL/MariaDB lifecycle and local permission checks retain their documented test boundaries; production indexing is not guaranteed.
+
 ## 1.1.0-beta.5 - 2026-10-13 (development)
 
 - Fix mobile Overview Site Details: use a scoped fluid table and stacked labelled fields instead of inheriting the 680px list-table minimum. Preserve the existing field names, permission checks, validation and POST handling; no schema or indexing-policy change.
