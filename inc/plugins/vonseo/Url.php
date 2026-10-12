@@ -393,13 +393,7 @@ class VonSEO_Url
      */
     public function publicProfile($uid)
     {
-        global $cache;
-        if((int)$uid <= 0 || !VonSEO_Utils::setting('vonseo_profile_index', 0))
-        {
-            return '';
-        }
-        $groups = is_object($cache) && method_exists($cache, 'read') ? $cache->read('usergroups') : false;
-        if(!is_array($groups) || empty($groups[1]['canview']) || empty($groups[1]['canviewprofiles']))
+        if((int)$uid <= 0 || !VonSEO_Utils::setting('vonseo_profile_index', 0) || !VonSEO_Utils::guestCanViewProfiles())
         {
             return '';
         }

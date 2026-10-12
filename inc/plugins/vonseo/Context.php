@@ -28,6 +28,15 @@ class VonSEO_Context
     public $canonical = '';
     public $socialImage = '';
     public $data = array();
+    /** @var bool Guest-visible content, independent of an SEO noindex choice. */
+    public $publicContent = false;
+    /** @var array */
+    public $seoSources = array('title' => 'Automatic', 'description' => 'Automatic',
+        'socialImage' => 'Global fallback', 'indexable' => 'Guest permissions and existing policy');
+    /** @var array */
+    public $seoWarnings = array();
+    /** @var bool */
+    protected $applySeoOverrides = true;
 
     /**
      * @var VonSEO_Url
@@ -293,6 +302,124 @@ class VonSEO_Context
         return $this;
     }
 
+    /** ACP snapshot: no network calls, raw MyCode rendering or global request mutation. @return $this */
+    public function resolveEntity(string $type, int $id, int $page = 1, bool $automaticOnly = false)
+    {
+        $this->page = max(1, min(1000000, $page));
+        $this->applySeoOverrides = !$automaticOnly;
+        if($type === 'forum')
+        {
+            $forum = get_forum($id);
+            $forum = is_array($forum) ? $forum : array();
+            $this->normalizeSnapshotPage('forum', $id, $forum, $forum);
+            return $this->resolveForum($id, $forum);
+        }
+        if($type === 'thread')
+        {
+            $thread = get_thread($id);
+            $thread = is_array($thread) ? $thread : array();
+            $forum = !empty($thread['fid']) ? get_forum((int)$thread['fid']) : array();
+            $forum = is_array($forum) ? $forum : array();
+            $this->normalizeSnapshotPage('thread', $id, $thread, $forum);
+            $result = $this->resolveThread($id, $thread, $forum);
+            if($this->publicContent && empty($this->data['first_post_text']) && $this->page === 1)
+            {
+                $this->seoWarnings[] = 'ACP cannot capture a real guest-rendered first post. The automatic description here is a fallback snapshot; verify the guest thread page when no description override is used.';
+                $this->seoWarnings[] = 'ACP schema snapshot cannot include DiscussionForumPosting without a real guest-rendered first post. A custom description does not supply that post; verify schema on the actual guest thread page.';
+            }
+            return $result;
+        }
+        return $this->resolveNoindex('other');
+    }
+
+    /** Stock guest pagination only, without admin visibility or request mutation. @return void */
+    protected function normalizeSnapshotPage(string $type, int $id, array $entity, array $forum)
+    {
+        global $db;
+        if($this->page === 1 || !$entity || !$this->isForumPublic($forum) ||
+           ($type === 'thread' && (!isset($entity['visible']) || (int)$entity['visible'] !== 1 ||
+            (isset($entity['closed']) && strpos((string)$entity['closed'], 'moved|') === 0))))
+        {
+            return;
+        }
+        $requested = $this->page;
+        $perPage = (int)VonSEO_Utils::setting($type === 'thread' ? 'postsperpage' : 'threadsperpage', 20);
+        if($perPage < 1)
+        {
+            $perPage = 20;
+        }
+        $permissions = forum_permissions((int)$forum['fid'], 0, 1);
+        $notices = !empty($permissions['canviewdeletionnotice']);
+        if($type === 'thread')
+        {
+            if($notices)
+            {
+                $query = $db->simple_select('posts', 'COUNT(*) AS total', "tid='{$id}' AND visible IN (1,-1)");
+                $count = (int)$db->fetch_field($query, 'total');
+            }
+            elseif(isset($entity['replies']))
+            {
+                $count = max(0, (int)$entity['replies']) + 1;
+            }
+            else
+            {
+                $this->page = 1;
+                $this->seoWarnings[] = 'Guest page counters are unavailable. The snapshot uses page 1; check the actual guest page for pagination.';
+                return;
+            }
+        }
+        else
+        {
+            $days = isset($forum['defaultdatecut']) ? (int)$forum['defaultdatecut'] : 9999;
+            if($days > 0 && $days !== 9999)
+            {
+                $now = defined('TIME_NOW') ? TIME_NOW : time();
+                $cutoff = (int)($now - $days * 86400);
+                $states = $notices ? '1,-1' : '1';
+                $query = $db->simple_select('threads', 'COUNT(*) AS total',
+                    "fid='{$id}' AND visible IN ({$states}) AND (lastpost >= '{$cutoff}' OR sticky='1')");
+                $count = (int)$db->fetch_field($query, 'total');
+            }
+            else
+            {
+                // MyBB reads fresh forum counters rather than the forum cache.
+                $query = $db->simple_select('forums', 'threads,deletedthreads', "fid='{$id}'", array('limit' => 1));
+                $counters = $db->fetch_array($query);
+                $count = is_array($counters) && isset($counters['threads']) ? max(0, (int)$counters['threads']) : 0;
+                if($notices && is_array($counters) && isset($counters['deletedthreads']))
+                {
+                    $count += max(0, (int)$counters['deletedthreads']);
+                }
+            }
+        }
+        if($requested > max(1, (int)ceil($count / $perPage)))
+        {
+            // Stock MyBB returns out-of-range requests to page 1, not the last page.
+            $this->page = 1;
+            $this->seoWarnings[] = 'Requested page '.$requested.' is outside the guest-visible page range. The snapshot uses page 1.';
+        }
+    }
+
+    /** @return string */
+    public function formatSeoTitle(string $title)
+    {
+        if($this->page > 1)
+        {
+            $title .= ' - Page '.$this->page;
+        }
+        return $this->withBoardName($title);
+    }
+
+    /** @return void */
+    protected function applyOverrides()
+    {
+        $this->publicContent = $this->indexable;
+        if($this->applySeoOverrides && class_exists('VonSEO_Overrides'))
+        {
+            VonSEO_Overrides::apply($this);
+        }
+    }
+
     /**
      * @param int $fid
      * @param array $forumData
@@ -330,10 +457,12 @@ class VonSEO_Context
         if($this->description === '')
         {
             $this->description = VonSEO_Utils::truncateDescription(VonSEO_Utils::setting('vonseo_site_description'));
+            $this->seoSources['description'] = 'Global fallback';
         }
 
         $this->canonical = $this->url->forum($this->id, $this->page, isset($forumData['name']) ? $forumData['name'] : '');
         $this->socialImage = $this->defaultImage();
+        $this->applyOverrides();
 
         return $this;
     }
@@ -418,6 +547,11 @@ class VonSEO_Context
         $this->canonical = $this->url->thread($this->id, $this->page, $urlSubject);
         $this->data['first_page_url'] = $this->url->thread($this->id, 0, $urlSubject);
         $this->socialImage = $this->threadSocialImage($threadData);
+        if(empty($this->data['first_post_text']))
+        {
+            $this->seoSources['description'] = 'Global fallback';
+        }
+        $this->applyOverrides();
 
         return $this;
     }
@@ -592,9 +726,9 @@ class VonSEO_Context
 
         $this->type = 'profile';
         $this->id = (int)$uid;
-        $this->indexable = (bool)VonSEO_Utils::setting('vonseo_profile_index', 0);
+        $this->indexable = (bool)VonSEO_Utils::setting('vonseo_profile_index', 0) && VonSEO_Utils::guestCanViewProfiles();
 
-        if($this->id <= 0)
+        if($this->id <= 0 || !$this->indexable)
         {
             return $this->resolveNoindex('profile');
         }
@@ -663,7 +797,7 @@ class VonSEO_Context
      */
     public function isForumPublic($forumData)
     {
-        if(!$forumData || !is_array($forumData) || empty($forumData['fid']))
+        if(!$forumData || !is_array($forumData) || empty($forumData['fid']) || !VonSEO_Utils::guestCanAccessBoard())
         {
             return false;
         }
@@ -743,17 +877,18 @@ class VonSEO_Context
      */
     public function isCalendarPublic($calendarData, $permissions = null)
     {
-        if(!is_array($calendarData) || empty($calendarData['cid']))
+        if(!is_array($calendarData) || empty($calendarData['cid']) ||
+           !VonSEO_Utils::guestCanViewCalendar((int)$calendarData['cid']))
         {
             return false;
         }
 
         if(is_array($permissions) && array_key_exists('canviewcalendar', $permissions))
         {
-            return (int)$permissions['canviewcalendar'] === 1;
+            return is_scalar($permissions['canviewcalendar']) && (int)$permissions['canviewcalendar'] === 1;
         }
 
-        return VonSEO_Utils::guestCanViewCalendar((int)$calendarData['cid']);
+        return true;
     }
 
     /**
@@ -810,6 +945,7 @@ class VonSEO_Context
 
         if($aid > 0)
         {
+            $this->seoSources['socialImage'] = 'Public first-post attachment';
             return $this->url->absolute('attachment.php?aid='.$aid);
         }
 
@@ -818,7 +954,13 @@ class VonSEO_Context
 
     protected function defaultImage()
     {
-        return $this->url->image(VonSEO_Utils::setting('vonseo_default_image'));
+        $raw = trim((string)VonSEO_Utils::setting('vonseo_default_image'));
+        $image = $this->url->image($raw);
+        if($raw !== '' && $image === '')
+        {
+            $this->seoWarnings[] = 'The configured Default Social Image URL is invalid and is omitted.';
+        }
+        return $image;
     }
 
     protected function boardName()

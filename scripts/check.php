@@ -56,6 +56,7 @@ if($mode !== 'lint')
     runCheck(escapeshellarg($root.'/tests/acp_lists.php'));
     runCheck(escapeshellarg($root.'/tests/acp_import.php'));
     runCheck(escapeshellarg($root.'/tests/acp_redirect_inspector.php'));
+    runCheck(escapeshellarg($root.'/tests/seo_overrides.php'));
     $cases = array();
     foreach(array('redirect_save', 'redirect_delete', 'redirects_import', 'notfound_clear', 'notfound_clear_all') as $action)
     {

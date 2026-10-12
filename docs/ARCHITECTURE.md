@@ -81,7 +81,17 @@ VonSEO runs on `pre_output_page`, after MyBB has parsed the page and before it i
 
 ## Content description
 
-Thread descriptions come from the first visible post. The sanitizer removes common quote/code/image MyCode, tags, raw URLs and excess whitespace before performing a sentence-aware truncation.
+Automatic thread descriptions use the original approved post as MyBB rendered it for Guest, not raw database MyCode or an administrator's private view. Description normalization and truncation are separate from the complete guest-rendered text used by DiscussionForumPosting.
+
+## Entity overrides and ACP snapshots
+
+Schema 6 adds the plugin-owned `vonseo_overrides` table for forum/thread title, description, image and restrictive noindex controls. A forum policy affects directly contained threads only; no override grants public access. Indexed, request-cached lookups are shared by metadata, sitemap filtering and IndexNow reconciliation. Separate ACP permissions and protected POST mutations govern management; native names, slugs and MyBB settings are not silently replaced.
+
+The ACP Inspector is a read-only configuration snapshot. It does not execute the Guest post renderer or fetch arbitrary URLs. Without that rendered first post, a first-page thread snapshot cannot supply DiscussionForumPosting. A separate schema limitation notice remains even when a custom description hides the automatic-description fallback notice. Search/social cards are illustrative, not live indexing results.
+
+## IndexNow history concurrency
+
+Admission atomically updates only the remembered public URL and update time. Successful delivery monotonically advances the cooldown timestamp and cannot replace a URL admitted while an older request was in flight. Removal acknowledgements delete only the selected queue generation, not history: a concurrent restoration must retain its evidence. This history contains only previously admitted public URLs and does not grant current eligibility; board/Guest gates still control delivery. Uninstall removes all VonSEO-owned history.
 
 ## Social image fallback
 

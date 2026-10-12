@@ -52,6 +52,25 @@ jobs:
       - run: php tests/acp_lists_mysql.php
         env:
           DB_PASSWORD: test-only-password
+      - run: php tests/release_correctness_mysql.php
+        env:
+          DB_PASSWORD: test-only-password
+      - name: Fetch pinned MyBB 1.8.41 core for isolated lifecycle checks
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mybb/mybb
+          ref: cacad9f352043a1e36f21871c32beba46852f93e
+          path: _qc/mybb
+          persist-credentials: false
+      - name: Fresh install, schema upgrade and lifecycle on native MyBB database layer
+        run: |
+          fixture="$(mktemp -d -t vonseo-lifecycle-XXXXXXXX)"
+          mkdir -p "$fixture/inc/plugins"
+          cp inc/plugins/vonseo.php "$fixture/inc/plugins/"
+          cp -R inc/plugins/vonseo "$fixture/inc/plugins/"
+          php tests/lifecycle_mysql.php _qc/mybb "$fixture"
+        env:
+          DB_PASSWORD: test-only-password
 
   package:
     runs-on: windows-latest

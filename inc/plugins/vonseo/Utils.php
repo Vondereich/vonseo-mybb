@@ -6,7 +6,7 @@ if(!defined('IN_MYBB'))
 
 if(!defined('VONSEO_VERSION'))
 {
-    define('VONSEO_VERSION', '1.0.8');
+    define('VONSEO_VERSION', '1.1.0-beta.4');
 }
 
 class VonSEO_Utils
@@ -121,39 +121,76 @@ class VonSEO_Utils
     }
 
     /**
-     * Resolve calendar visibility for MyBB's Guest group, independent of the
-     * current visitor. A calendar-specific permission overrides the base
-     * usergroup value exactly as MyBB's calendar permission resolver does.
+     * MyBB's global guest gates also apply to worker/crawler entry points that
+     * do not execute global.php. Never use the logged-in visitor's permissions.
+     *
+     * @return bool
+     */
+    public static function guestCanAccessBoard()
+    {
+        if((int)self::setting('forcelogin', 0) === 1 || !self::guestGroupPermission('canview'))
+        {
+            return false;
+        }
+
+        return (int)self::setting('boardclosed', 0) !== 1 || self::guestGroupPermission('canviewboardclosed');
+    }
+
+    /** Shared profile/author baseline. Missing profile cache stays fail-closed. @return bool */
+    public static function guestCanViewProfiles()
+    {
+        global $cache;
+        $groups = is_object($cache) && method_exists($cache, 'read') ? $cache->read('usergroups') : false;
+        return is_array($groups) && isset($groups[1]) && is_array($groups[1]) &&
+            isset($groups[1]['canviewprofiles']) && is_scalar($groups[1]['canviewprofiles']) &&
+            (int)$groups[1]['canviewprofiles'] === 1 && self::guestCanAccessBoard();
+    }
+
+    /**
+     * Fail closed on missing/malformed permission data. The field names are
+     * fixed here, not derived from visitor input or the current usergroup.
+     *
+     * @param string $field
+     * @return bool
+     */
+    protected static function guestGroupPermission($field)
+    {
+        global $cache, $db;
+
+        if(!in_array($field, array('canview', 'canviewcalendar', 'canviewboardclosed'), true))
+        {
+            return false;
+        }
+        $groups = is_object($cache) && method_exists($cache, 'read') ? $cache->read('usergroups') : false;
+        if(is_array($groups) && isset($groups[1]) && is_array($groups[1]) && array_key_exists($field, $groups[1]))
+        {
+            return is_scalar($groups[1][$field]) && (int)$groups[1][$field] === 1;
+        }
+        if(!is_object($db) || !method_exists($db, 'simple_select') || !method_exists($db, 'fetch_array'))
+        {
+            return false;
+        }
+        $query = $db->simple_select('usergroups', $field, "gid='1'", array('limit' => 1));
+        $group = $db->fetch_array($query);
+        return is_array($group) && isset($group[$field]) && is_scalar($group[$field]) && (int)$group[$field] === 1;
+    }
+
+    /**
+     * Calendar-specific permission is evaluated only after MyBB's board,
+     * feature and global Guest-calendar prerequisites have all succeeded.
      *
      * @param int|string $cid
      * @return bool
      */
     public static function guestCanViewCalendar($cid)
     {
-        global $cache, $db;
+        global $db;
 
         $cid = (int)$cid;
-        if($cid <= 0 || !is_object($db))
+        if($cid <= 0 || !is_object($db) || !self::guestCanAccessBoard() ||
+           (int)self::setting('enablecalendar', 0) !== 1 || !self::guestGroupPermission('canviewcalendar'))
         {
             return false;
-        }
-
-        $guestCanView = null;
-        $groups = is_object($cache) && method_exists($cache, 'read') ? $cache->read('usergroups') : false;
-        if(is_array($groups) && isset($groups[1]) && is_array($groups[1]) &&
-           array_key_exists('canviewcalendar', $groups[1]))
-        {
-            $guestCanView = (int)$groups[1]['canviewcalendar'] === 1;
-        }
-
-        if($guestCanView === null)
-        {
-            $groupQuery = $db->simple_select('usergroups', 'canviewcalendar', "gid='1'", array('limit' => 1));
-            $group = $db->fetch_array($groupQuery);
-            if(is_array($group) && array_key_exists('canviewcalendar', $group))
-            {
-                $guestCanView = (int)$group['canviewcalendar'] === 1;
-            }
         }
 
         $permissionQuery = $db->simple_select(
@@ -165,10 +202,10 @@ class VonSEO_Utils
         $permission = $db->fetch_array($permissionQuery);
         if(is_array($permission) && array_key_exists('canviewcalendar', $permission))
         {
-            return (int)$permission['canviewcalendar'] === 1;
+            return is_scalar($permission['canviewcalendar']) && (int)$permission['canviewcalendar'] === 1;
         }
 
-        return $guestCanView === true;
+        return true;
     }
 
     /**

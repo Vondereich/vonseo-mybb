@@ -102,6 +102,7 @@ require_once MYBB_ROOT.'inc/plugins/vonseo/Utils.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/State.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Url.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Html.php';
+require_once MYBB_ROOT.'inc/plugins/vonseo/Overrides.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Keyword.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Context.php';
 require_once MYBB_ROOT.'inc/plugins/vonseo/Robots.php';
@@ -132,6 +133,7 @@ class MockMyBB
         'vonseo_site_description' => 'The best discussion community.',
         'vonseo_default_image' => 'https://example.com/forum/images/logo.png',
         'vonseo_profile_index' => '1',
+        'enablecalendar' => '1',
         'vonseo_robots_txt' => "User-agent: *\nDisallow: /admin/"
     );
     public $input = array();
@@ -179,6 +181,10 @@ class MockDb
 
     public function simple_select(string $table, string $fields, string $conditions = '', array $options = array())
     {
+        if($table === 'usergroups')
+        {
+            return array('canview' => 1, 'canviewcalendar' => 1);
+        }
         if($table === 'threads' && preg_match("/tid='(\\d+)'/", $conditions, $matches))
         {
             $tid = (int)$matches[1];
@@ -785,6 +791,19 @@ class MockQueueDb
 
     public function write_query(string $sql)
     {
+        if(strpos($sql, 'INSERT INTO mybb_vonseo_indexnow_threads') === 0 &&
+            preg_match("/VALUES \((\d+),'((?:\\\\.|[^'])*)',(\d+),(\d+)\)/s", $sql, $historyValues))
+        {
+            $tid = (int)$historyValues[1];
+            $existing = isset($this->history[$tid]) ? $this->history[$tid] : array();
+            $updatesUrl = strpos($sql, 'UPDATE last_public_url=') !== false;
+            $this->history[$tid] = array('tid' => $tid,
+                'last_public_url' => !$existing || $updatesUrl ? stripslashes($historyValues[2]) : $existing['last_public_url'],
+                'last_submitted_at' => max(isset($existing['last_submitted_at']) ? (int)$existing['last_submitted_at'] : 0, (int)$historyValues[3]),
+                'updated_at' => max(isset($existing['updated_at']) ? (int)$existing['updated_at'] : 0, (int)$historyValues[4]));
+            $this->lastAffected = 1;
+            return;
+        }
         if(!preg_match("/INSERT INTO mybb_vonseo_indexnow_queue .*VALUES \((\d+),'([^']+)','([^']+)','([^']+)','([^']+)',0,(\d+),0,(\d+),(\d+),''\)/", $sql, $matches))
         {
             return;
@@ -879,7 +898,7 @@ class MockSitemapDb
         }
         if($table === 'usergroups')
         {
-            return new MockInstallQuery(array(array('canviewcalendar' => 1)));
+            return new MockInstallQuery(array(array('canview' => 1, 'canviewcalendar' => 1)));
         }
         if($table === 'calendarpermissions')
         {
@@ -914,6 +933,7 @@ class MockSitemapDb
 
 $GLOBALS['mybb'] = new MockMyBB();
 $GLOBALS['cache'] = new MockCache();
+$GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewcalendar' => 1));
 $GLOBALS['db'] = new MockDb();
 
 class TestRunner
@@ -1410,7 +1430,7 @@ $queueDb->rows = array(
     2 => array('qid' => 2, 'tid' => 15, 'generation' => 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'attempts' => 1, 'available_at' => TIME_NOW)
 );
 $GLOBALS['db'] = $queueDb;
-$GLOBALS['cache']->data = array();
+$GLOBALS['cache']->data = array('usergroups' => array(1 => array('canview' => 1, 'canviewcalendar' => 1)));
 VonSEO_State::resetRuntime();
 $processingIndexNow = new RecordingProcessingIndexNow($url);
 $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '1';
@@ -1482,8 +1502,8 @@ $queueDb->rows = array(
     11 => array('qid' => 11, 'tid' => 17, 'generation' => '17171717171717171717171717171717', 'event_type' => 'removed', 'url' => 'https://example.com/forum/t-17-removed-thread', 'attempts' => 0, 'available_at' => TIME_NOW)
 );
 $removedDelivery = $processingIndexNow->processQueue(25);
-$t->assert($removedDelivery['success'] && $processingIndexNow->submitted === array('https://example.com/forum/t-17-removed-thread') && !isset($queueDb->history[17]) && !$queueDb->rows,
-    'Removed public thread URL is submitted without requiring the deleted entity and then clears its history');
+$t->assert($removedDelivery['success'] && $processingIndexNow->submitted === array('https://example.com/forum/t-17-removed-thread') && isset($queueDb->history[17]) && !$queueDb->rows,
+    'Removed public thread URL is submitted and clears its queue, retaining known-public evidence for concurrent admission');
 $queueDb->rows = array(
     10 => array('qid' => 10, 'tid' => 999, 'generation' => '99999999999999999999999999999999', 'attempts' => 0, 'available_at' => TIME_NOW)
 );
@@ -1707,6 +1727,8 @@ $t->assert($imageContext->socialImage === 'https://example.com/forum/images/soci
     'Valid relative social image and Organization logo keep their public resolved URLs');
 $imageInputBefore = $GLOBALS['mybb']->input;
 $memberProfileBefore = isset($GLOBALS['memprofile']) ? $GLOBALS['memprofile'] : null;
+$avatarGroupsBefore = isset($GLOBALS['cache']->data['usergroups']) ? $GLOBALS['cache']->data['usergroups'] : null;
+$GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewprofiles' => 1));
 $_SERVER['SCRIPT_NAME'] = '/member.php';
 $GLOBALS['mybb']->input = array('action' => 'profile', 'uid' => 9);
 $GLOBALS['memprofile'] = array('uid' => 9, 'username' => 'Profile Test', 'avatar' => 'https://user:pass@cdn.example/avatar.png');
@@ -1721,6 +1743,8 @@ $GLOBALS['memprofile']['avatar'] = 'data:image/png;base64,AAA';
 $t->assert((new VonSEO_Context($url))->resolve()->socialImage === '',
     'Unsafe avatar with no configured fallback emits no image');
 $GLOBALS['mybb']->input = $imageInputBefore;
+if($avatarGroupsBefore === null) { unset($GLOBALS['cache']->data['usergroups']); }
+else { $GLOBALS['cache']->data['usergroups'] = $avatarGroupsBefore; }
 if($memberProfileBefore === null)
 {
     unset($GLOBALS['memprofile']);
@@ -1980,7 +2004,7 @@ $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = '0';
 
 // --- TEST 11: Plugin installation and upgrade repair (mock database) ---
 require_once MYBB_ROOT.'inc/plugins/vonseo.php';
-$t->assert(vonseo_info()['version'] === '1.0.8', 'Source plugin metadata matches the 1.0.8 release');
+$t->assert(vonseo_info()['version'] === '1.1.0-beta.4', 'Source plugin metadata matches the 1.1.0 beta build');
 $pluginSource = file_get_contents(MYBB_ROOT.'inc/plugins/vonseo.php');
 $t->assert(strpos($pluginSource, "add_hook('postbit_announcement', 'vonseo_capture_guest_announcement'") !== false,
     'Announcement text capture is registered on MyBB postbit_announcement');
@@ -2668,7 +2692,7 @@ $freshCount = count($installDb->settings);
 $t->assert(isset($installDb->groups['vonseo']) && $freshCount === 25, 'Fresh install creates one group and all 25 retained settings');
 $t->assert(isset($installDb->settings['vonseo_site_description']) && (int)$installDb->settings['vonseo_site_description']['gid'] === 0 && !isset($installDb->settings['vonseo_home_title']), 'Site Description stays cached but hidden from Advanced Settings and the duplicate homepage title is absent');
 $t->assert(isset($installDb->tables['vonseo_redirects']) && isset($installDb->tables['vonseo_404_log']) && isset($installDb->tables['vonseo_indexnow_queue']) && isset($installDb->tables['vonseo_indexnow_threads']) && isset($installDb->tables['vonseo_meta']), 'Fresh install creates all VonSEO data and metadata tables');
-$t->assert(VonSEO_State::schemaVersion() === 5 && !isset($installDb->tasks['vonseo_indexnow']), 'Fresh install records schema 5 without scheduling work before activation');
+$t->assert(VonSEO_State::schemaVersion() === 6 && isset($installDb->tables['vonseo_overrides']) && !isset($installDb->tasks['vonseo_indexnow']), 'Fresh install records schema 6 and overrides without scheduling work before activation');
 $t->assert($installDb->settings['vonseo_searchbox_schema']['value'] === '0', 'Fresh install disables legacy SearchAction by default');
 $t->assert($installDb->settings['vonseo_keyword_urls']['value'] === '0', 'Fresh install leaves experimental keyword URLs disabled');
 $t->assert(strpos($installDb->settings['vonseo_robots_txt']['value'], "Disallow: /forum'o/admin/") !== false &&
@@ -2693,17 +2717,17 @@ $t->assert($installDb->settings['vonseo_site_description']['value'] === 'Saved s
 $t->assert(strpos($installDb->settings['vonseo_searchbox_schema']['description'], 'retired') !== false && count($installDb->redirectRows) === 1, 'Activation refreshes help text without changing redirect data');
 $rebuildsBeforeDeactivate = $GLOBALS['test_rebuild_count'];
 vonseo_deactivate();
-$t->assert(count($installDb->settings) === $freshCount && count($installDb->redirectRows) === 1 && count($installDb->tables) === 5 &&
+$t->assert(count($installDb->settings) === $freshCount && count($installDb->redirectRows) === 1 && count($installDb->tables) === 6 &&
     (int)$installDb->tasks['vonseo_indexnow']['enabled'] === 0 && $GLOBALS['cache']->taskUpdates === 2 && $GLOBALS['test_rebuild_count'] === $rebuildsBeforeDeactivate + 1,
     'Deactivation keeps VonSEO data and disables its scheduled worker');
 
 unset($installDb->tables['vonseo_indexnow_queue'], $installDb->tasks['vonseo_indexnow']);
 VonSEO_State::setSchemaVersion(1);
 vonseo_activate();
-$t->assert(isset($installDb->tables['vonseo_indexnow_queue']) && isset($installDb->tables['vonseo_indexnow_threads']) && isset($installDb->tasks['vonseo_indexnow']) && VonSEO_State::schemaVersion() === 5 && count($installDb->redirectRows) === 1, 'Legacy beta schema upgrades through retry-safe delivery without changing redirect data');
+$t->assert(isset($installDb->tables['vonseo_indexnow_queue']) && isset($installDb->tables['vonseo_indexnow_threads']) && isset($installDb->tasks['vonseo_indexnow']) && isset($installDb->tables['vonseo_overrides']) && VonSEO_State::schemaVersion() === 6 && count($installDb->redirectRows) === 1, 'Legacy schema upgrades through override storage without changing redirect data');
 unset($installDb->tables['vonseo_indexnow_queue'], $installDb->tasks['vonseo_indexnow']);
 vonseo_activate();
-$t->assert(isset($installDb->tables['vonseo_indexnow_queue']) && isset($installDb->tables['vonseo_indexnow_threads']) && isset($installDb->tasks['vonseo_indexnow']) && VonSEO_State::schemaVersion() === 5, 'Repeated activation repairs a missing queue table and task without changing the version marker');
+$t->assert(isset($installDb->tables['vonseo_indexnow_queue']) && isset($installDb->tables['vonseo_indexnow_threads']) && isset($installDb->tasks['vonseo_indexnow']) && VonSEO_State::schemaVersion() === 6, 'Repeated activation repairs a missing queue table and task without changing the version marker');
 $installDb->type = 'pgsql';
 $t->assert(vonseo_database_supported() === false, 'Unsupported non-MySQL database families fail the explicit support check');
 $installDb->type = 'mysqli';
@@ -2746,12 +2770,224 @@ $rebuildsBeforeUninstall = $GLOBALS['test_rebuild_count'];
 vonseo_uninstall();
 $t->assert(!isset($installDb->groups['vonseo']) && isset($installDb->groups['other']), 'Uninstall removes VonSEO settings group without touching another group');
 $t->assert(count($installDb->settings) === 1 && isset($installDb->settings['other_setting']), 'Uninstall removes every VonSEO setting and preserves unrelated settings');
-$t->assert(!isset($installDb->tables['vonseo_redirects']) && !isset($installDb->tables['vonseo_404_log']) && !isset($installDb->tables['vonseo_indexnow_queue']) && !isset($installDb->tables['vonseo_indexnow_threads']) && !isset($installDb->tables['vonseo_meta']) && !$installDb->redirectRows && !$installDb->tasks, 'Uninstall drops all VonSEO tables, queue task and their rows');
+$t->assert(!isset($installDb->tables['vonseo_redirects']) && !isset($installDb->tables['vonseo_404_log']) && !isset($installDb->tables['vonseo_indexnow_queue']) && !isset($installDb->tables['vonseo_indexnow_threads']) && !isset($installDb->tables['vonseo_meta']) && !isset($installDb->tables['vonseo_overrides']) && !$installDb->redirectRows && !$installDb->tasks, 'Uninstall drops all VonSEO tables including overrides, queue task and their rows');
 $t->assert($GLOBALS['test_rebuild_count'] === $rebuildsBeforeUninstall + 1, 'Uninstall rebuilds MyBB settings cache');
 $t->assert($GLOBALS['cache']->taskUpdates >= 5, 'Activation, deactivation and uninstall refresh MyBB scheduled-task cache');
 $installDb->settings['vonseo_orphan'] = array('gid' => 7, 'name' => 'vonseo_orphan', 'value' => 'stale');
 vonseo_uninstall();
-$t->assert(count($installDb->removedTables) === 5 && !isset($installDb->settings['vonseo_orphan']) && isset($installDb->settings['other_setting']), 'Repeated uninstall removes orphaned VonSEO settings and leaves unrelated data intact');
+$t->assert(count($installDb->removedTables) === 6 && !isset($installDb->settings['vonseo_orphan']) && isset($installDb->settings['other_setting']), 'Repeated uninstall removes orphaned VonSEO settings and leaves unrelated data intact');
+
+// Board-wide Guest gates must precede every IndexNow publication path.
+class GuestBoundaryTransport extends VonSEO_IndexNow
+{
+    public $submitted = array();
+    protected function sendPingResult(array $payload)
+    {
+        $this->submitted = $payload['urlList'];
+        return array('success' => true, 'class' => 'ready', 'message' => '', 'http_status' => 200);
+    }
+}
+function guestBoundaryFixture()
+{
+    $GLOBALS['mybb'] = new MockMyBB();
+    $GLOBALS['mybb']->user = array('uid' => 7, 'usergroup' => 4);
+    $GLOBALS['mybb']->settings['vonseo_keyword_urls'] = 1;
+    $GLOBALS['cache'] = new MockCache();
+    $GLOBALS['cache']->data['usergroups'] = array(1 => array('canview' => 1, 'canviewcalendar' => 1, 'canviewboardclosed' => 0));
+    $GLOBALS['cache']->data['usergroups'][4] = array('canview' => 1, 'canviewcalendar' => 1, 'canviewboardclosed' => 1);
+    $GLOBALS['cache']->forums[2] = array('fid' => 2, 'type' => 'f', 'active' => 1, 'password' => '', 'parentlist' => '2', 'name' => 'Public forum');
+    $GLOBALS['test_forum_permissions'][2] = array('canview' => 1, 'canviewthreads' => 1, 'canonlyviewownthreads' => 0);
+    $GLOBALS['test_inactive_forums'] = '';
+    $GLOBALS['db'] = new MockQueueDb();
+    $GLOBALS['db']->threads[10] = array('tid' => 10, 'fid' => 2, 'visible' => 1, 'closed' => '', 'subject' => 'Guest boundary topic');
+    VonSEO_State::resetRuntime();
+    VonSEO_Overrides::resetRuntime();
+}
+foreach(array('force_login', 'guest_denied', 'board_closed') as $gate)
+{
+    guestBoundaryFixture();
+    if($gate === 'force_login') { $GLOBALS['mybb']->settings['forcelogin'] = 1; }
+    if($gate === 'guest_denied') { $GLOBALS['cache']->data['usergroups'][1]['canview'] = 0; }
+    if($gate === 'board_closed') { $GLOBALS['mybb']->settings['boardclosed'] = 1; }
+    $transport = new GuestBoundaryTransport();
+    $t->assert($transport->capturePublicThreadUrl(10) === false && !$transport->queueThread(10, 'new_thread') && !$GLOBALS['db']->history,
+        'Guest board gate blocks new URL capture, queue and public history: '.$gate);
+    $t->assert(!$transport->submitThread(10) && !$transport->submitUrls(array('https://example.com/forum/t-10-never-public')) && !$transport->submitted,
+        'Guest board gate blocks manual and URL-only transport: '.$gate);
+    foreach(array(1 => 'current', 2 => 'removed') as $qid => $eventType)
+    {
+        $GLOBALS['db']->rows[$qid] = array('qid' => $qid, 'tid' => $qid === 1 ? 10 : 11, 'generation' => 'retained-'.$qid,
+            'event_type' => $eventType, 'url' => 'https://example.com/forum/t-'.($qid === 1 ? 10 : 11).'-old-public',
+            'attempts' => 2, 'available_at' => TIME_NOW, 'retry_not_before' => 0);
+    }
+    $before = $GLOBALS['db']->rows;
+    $result = $transport->processQueue();
+    $t->assert(!$transport->submitted && $GLOBALS['db']->rows === $before && $result['processed'] === 0 &&
+        $result['status'] === 'config_error' && $result['remaining'] === 2,
+        'Guest board gate pauses both current and historical removal rows without retry loss: '.$gate);
+    $GLOBALS['mybb']->settings['forcelogin'] = 0;
+    $GLOBALS['mybb']->settings['boardclosed'] = 0;
+    $GLOBALS['cache']->data['usergroups'][1]['canview'] = 1;
+    $transport->processQueue();
+    $t->assert(count($transport->submitted) === 2 && !$GLOBALS['db']->rows,
+        'Reopening the public board resumes current and remembered removal URLs: '.$gate);
+}
+guestBoundaryFixture();
+$t->assert((new GuestBoundaryTransport())->queueThread(10, 'new_thread') && !empty($GLOBALS['db']->history[10]),
+    'Ordinary public thread admission still remembers its URL');
+$GLOBALS['mybb']->settings['boardclosed'] = 1;
+$GLOBALS['cache']->data['usergroups'][1]['canviewboardclosed'] = 1;
+$t->assert((new GuestBoundaryTransport())->capturePublicThreadUrl(10) !== false,
+    'Explicit Guest permission to view a closed board remains supported');
+unset($GLOBALS['cache']->data['usergroups']);
+$t->assert((new GuestBoundaryTransport())->capturePublicThreadUrl(10) === false,
+    'Unknown Guest board permissions fail closed rather than trusting per-forum allow');
+guestBoundaryFixture();
+$GLOBALS['mybb']->settings['forcelogin'] = '1';
+$t->assert((new GuestBoundaryTransport())->capturePublicThreadUrl(10) === false,
+    'String-valued MyBB force-login setting cannot bypass the board gate');
+$GLOBALS['mybb']->settings['forcelogin'] = 0;
+$GLOBALS['cache']->data['usergroups'][1]['canview'] = array(1);
+$t->assert((new GuestBoundaryTransport())->capturePublicThreadUrl(10) === false,
+    'Malformed cached Guest permission cannot cast into an allow');
+
+// Calendar-specific grants cannot bypass the board/feature/global Guest gates.
+foreach(array('allow', 'specific_deny', 'global_deny', 'disabled', 'force_login', 'guest_denied') as $case)
+{
+    guestBoundaryFixture();
+    $GLOBALS['db'] = new MockSitemapDb();
+    $GLOBALS['db']->calendarRows = array(array('cid' => 7));
+    $GLOBALS['db']->calendarPermissions = array(7 => $case === 'specific_deny' ? 0 : 1);
+    $GLOBALS['db']->eventCount = 1;
+    $GLOBALS['db']->eventRows = array(array('eid' => 42));
+    if($case === 'global_deny') { $GLOBALS['cache']->data['usergroups'][1]['canviewcalendar'] = 0; }
+    if($case === 'disabled') { $GLOBALS['mybb']->settings['enablecalendar'] = 0; }
+    if($case === 'force_login') { $GLOBALS['mybb']->settings['forcelogin'] = 1; }
+    if($case === 'guest_denied') { $GLOBALS['cache']->data['usergroups'][1]['canview'] = 0; }
+    $allowed = $case === 'allow';
+    $t->assert(VonSEO_Utils::guestCanViewCalendar(7) === $allowed &&
+        (new VonSEO_Context(new VonSEO_Url()))->isCalendarPublic(array('cid' => 7), array('canviewcalendar' => 1)) === $allowed,
+        'Calendar helper and supplied-permission Context agree with complete Guest gate: '.$case);
+    foreach(array('calendars' => 'calendar=7', 'events' => 'eid=42') as $type => $marker)
+    {
+        $GLOBALS['mybb']->input = array('type' => $type, 'page' => 1);
+        ob_start(); (new VonSEO_Sitemap(new VonSEO_Url()))->output(); $xml = ob_get_clean();
+        $t->assert((strpos($xml, $marker) !== false) === $allowed,
+            'Sitemap '.$type.' respects complete Guest gate: '.$case);
+    }
+}
+guestBoundaryFixture();
+$GLOBALS['db'] = new MockSitemapDb();
+unset($GLOBALS['cache']->data['usergroups']);
+$t->assert(VonSEO_Utils::guestCanViewCalendar(7), 'Missing Guest cache uses an explicit database permission lookup');
+$t->assert(!(new VonSEO_Context(new VonSEO_Url()))->isCalendarPublic(array('cid' => 7), array('canviewcalendar' => 0)),
+    'Supplied restrictive calendar permission remains restrictive');
+class MissingGuestSitemapDb extends MockSitemapDb
+{
+    public function simple_select(string $table, string $fields, string $conditions = '', array $options = array())
+    {
+        return $table === 'usergroups' ? new MockInstallQuery(array()) : parent::simple_select($table, $fields, $conditions, $options);
+    }
+}
+$GLOBALS['db'] = new MissingGuestSitemapDb();
+$GLOBALS['db']->calendarPermissions = array(7 => 1);
+$t->assert(!VonSEO_Utils::guestCanViewCalendar(7), 'Specific calendar grant cannot bypass missing Guest permission data');
+
+// Seven release-audit correctness regressions, using the real shared paths.
+set_error_handler(function($severity, $message, $file, $line) {
+    if(error_reporting() & $severity) { throw new ErrorException($message, 0, $severity, $file, $line); }
+    return false;
+});
+foreach(array('member.php', 'calendar.php') as $script)
+{
+    $_SERVER['SCRIPT_NAME'] = '/forum/'.$script;
+    foreach(array('action[]=profile', 'action[x][y]=event') as $query)
+    {
+        $_SERVER['REQUEST_URI'] = '/forum/'.$script.'?'.$query.'&uid=9&eid=42';
+        $warningFree = true;
+        try { $identity = VonSEO_Errors::requestPath(); }
+        catch(ErrorException $e) { $warningFree = false; $identity = ''; }
+        $t->assert($warningFree && $identity === '/'.$script, 'Malformed action arrays are omitted without warning: '.$script.' '.$query);
+    }
+}
+restore_error_handler();
+
+foreach(array('allow', 'profiles_denied', 'board_denied', 'force_login', 'closed', 'closed_allowed', 'missing', 'malformed', 'disabled') as $case)
+{
+    guestBoundaryFixture();
+    $GLOBALS['mybb']->settings['vonseo_profile_index'] = $case === 'disabled' ? '0' : '1';
+    $GLOBALS['cache']->data['usergroups'][1]['canviewprofiles'] = $case === 'profiles_denied' ? 0 : 1;
+    if($case === 'board_denied') { $GLOBALS['cache']->data['usergroups'][1]['canview'] = 0; }
+    if($case === 'force_login') { $GLOBALS['mybb']->settings['forcelogin'] = '1'; }
+    if(in_array($case, array('closed', 'closed_allowed'), true)) { $GLOBALS['mybb']->settings['boardclosed'] = 1; }
+    if($case === 'closed_allowed') { $GLOBALS['cache']->data['usergroups'][1]['canviewboardclosed'] = 1; }
+    if($case === 'missing') { unset($GLOBALS['cache']->data['usergroups']); }
+    if($case === 'malformed') { $GLOBALS['cache']->data['usergroups'][1]['canviewprofiles'] = array(1); }
+    $_SERVER['SCRIPT_NAME'] = '/forum/member.php';
+    $GLOBALS['mybb']->input = array('action' => 'profile', 'uid' => 9);
+    $GLOBALS['mybb']->user = array('uid' => 1); // Administrator may view what Guest cannot.
+    $GLOBALS['memprofile'] = array('uid' => 9, 'username' => 'Profile audit test', 'usertitle' => 'Public title');
+    $context = (new VonSEO_Context(new VonSEO_Url()))->resolve();
+    $allowed = in_array($case, array('allow', 'closed_allowed'), true);
+    $authorUrl = (new VonSEO_Url())->publicProfile(9);
+    $t->assert($context->indexable === $allowed && ($authorUrl !== '') === $allowed,
+        'Profile context and author URL share the complete Guest policy: '.$case);
+    if(!$allowed) { $t->assert($context->canonical === '' && $context->description === '', 'Denied profile emits no personal SEO fields: '.$case); }
+}
+
+class HistoryCorrectnessProbe extends VonSEO_IndexNow
+{
+    public function remember($tid, $url) { $this->rememberPublicUrl($tid, $url); }
+    public function submitted($tid, $url, $time) { $this->markThreadSubmitted($tid, $url, $time); }
+}
+class HistoryInterleavingDb extends MockQueueDb
+{
+    public $historyReads = 0;
+    public function simple_select(string $table, string $fields, string $conditions = '', array $options = array())
+    {
+        $snapshot = parent::simple_select($table, $fields, $conditions, $options);
+        if($table === 'vonseo_indexnow_threads')
+        {
+            ++$this->historyReads;
+            // Simulate another worker committing after the obsolete snapshot.
+            $this->history[10]['last_submitted_at'] = TIME_NOW + 60;
+        }
+        return $snapshot;
+    }
+}
+guestBoundaryFixture();
+$GLOBALS['db'] = new HistoryInterleavingDb();
+$historyDb = $GLOBALS['db'];
+$historyDb->history[10] = array('tid' => 10, 'last_public_url' => 'https://example.com/forum/t-10-old', 'last_submitted_at' => TIME_NOW + 60, 'updated_at' => TIME_NOW);
+$historyProbe = new HistoryCorrectnessProbe(new VonSEO_Url());
+$historyProbe->remember(10, 'https://example.com/forum/t-10-new');
+$t->assert($historyDb->history[10]['last_submitted_at'] === TIME_NOW + 60 && $historyDb->historyReads === 0,
+    'Admission updates only the URL atomically without reading/replacing a worker timestamp');
+$historyProbe->submitted(10, 'https://example.com/forum/t-10-old', TIME_NOW + 120);
+$historyProbe->submitted(10, 'https://example.com/forum/t-10-older', TIME_NOW + 30);
+$t->assert($historyDb->history[10]['last_submitted_at'] === TIME_NOW + 120 && $historyDb->history[10]['last_public_url'] === 'https://example.com/forum/t-10-new',
+    'Reversed worker completion cannot regress cooldown or replace an admitted newer slug');
+$historyProbe->submitted(11, 'https://example.com/forum/t-11-new', TIME_NOW + 120);
+$t->assert($historyDb->history[11]['last_submitted_at'] === TIME_NOW + 120 && $historyDb->history[11]['last_public_url'] === 'https://example.com/forum/t-11-new',
+    'First successful delivery can initialize missing history');
+
+class RemovalAdmissionRaceProbe extends RecordingProcessingIndexNow
+{
+    protected function deleteSelectedRow($condition)
+    {
+        $deleted = parent::deleteSelectedRow($condition);
+        if($deleted) { $this->queueThread(10, 'restored_thread'); }
+        return $deleted;
+    }
+}
+guestBoundaryFixture();
+$removalRaceDb = $GLOBALS['db'];
+$removalRaceDb->history[10] = array('tid'=>10,'last_public_url'=>'https://example.com/forum/t-10-before-restore','last_submitted_at'=>TIME_NOW-900,'updated_at'=>TIME_NOW-900);
+$removalRaceDb->rows[8] = array('qid'=>8,'tid'=>10,'generation'=>str_repeat('c',32),'event_type'=>'removed','url'=>'https://example.com/forum/t-10-before-restore','attempts'=>0,'available_at'=>TIME_NOW,'retry_not_before'=>0);
+(new RemovalAdmissionRaceProbe(new VonSEO_Url()))->processQueue();
+$t->assert(count($removalRaceDb->rows) === 1 && reset($removalRaceDb->rows)['event_type'] === 'current' &&
+    isset($removalRaceDb->history[10]) && $removalRaceDb->history[10]['last_public_url'] !== 'https://example.com/forum/t-10-before-restore',
+    'Restored-thread admission between removal acknowledgement and cleanup retains its current generation and history');
 
 // Output report
 $allPassed = $t->report();

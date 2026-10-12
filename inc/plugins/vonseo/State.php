@@ -12,7 +12,7 @@ class VonSEO_State
 {
     const CACHE_KEY = 'vonseo_state';
     const CACHE_PREFIX = 'vonseo_state_';
-    const SCHEMA_VERSION = 5;
+    const SCHEMA_VERSION = 6;
 
     /** @var array|null */
     protected static $runtime = null;
@@ -244,9 +244,15 @@ class VonSEO_State
         global $cache;
         self::$runtime = array();
         self::$schemaRuntime = null;
+        if(class_exists('VonSEO_Overrides'))
+        {
+            VonSEO_Overrides::resetRuntime();
+        }
         if(is_object($cache) && method_exists($cache, 'delete'))
         {
             $cache->delete(self::CACHE_KEY);
+            $cache->delete('vonseo_override_schema');
+            $cache->delete('vonseo_override_revision');
             foreach(self::$fields as $field)
             {
                 $cache->delete(self::CACHE_PREFIX.$field);

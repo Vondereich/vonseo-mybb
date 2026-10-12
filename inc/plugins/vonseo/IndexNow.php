@@ -6,6 +6,8 @@ if(!defined('IN_MYBB'))
 
 class VonSEO_IndexNow
 {
+    /** @var bool A public thread was rejected only by an SEO indexing override. */
+    protected $policyBlocked = false;
     const MAX_ATTEMPTS = 10;
     const THREAD_COOLDOWN = 300;
     const CONFIG_RETRY_DELAY = 300;
@@ -160,6 +162,13 @@ class VonSEO_IndexNow
         return $this->publicThreadUrl($tid);
     }
 
+    /** @param int|string $tid @return bool */
+    public function hasPublicHistory($tid)
+    {
+        $history = $this->threadHistory($tid);
+        return !empty($history['last_public_url']) && $this->isBoardUrl($history['last_public_url']);
+    }
+
     /**
      * Queue an old public URL so participating engines recrawl its 404/redirect.
      * The URL must be a captured public URL or a remembered public URL. Never
@@ -259,7 +268,28 @@ class VonSEO_IndexNow
             return $result;
         }
 
+        if(!VonSEO_Utils::guestCanAccessBoard())
+        {
+            // Existing history may predate the corrected global gate. Do not
+            // send even removal rows while the board is inaccessible to Guest;
+            // retain generations, attempts and reconciliation jobs unchanged.
+            $result['success'] = false;
+            $result['status'] = 'config_error';
+            if(class_exists('VonSEO_State'))
+            {
+                VonSEO_State::recordIndexNowResult(false, 0,
+                    'IndexNow is paused because MyBB does not allow Guest board access. Queued URLs are retained.',
+                    0, 'config_error', 0);
+                $result['remaining'] = VonSEO_State::refreshQueueDepth();
+            }
+            return $result;
+        }
+
         $limit = max(1, min(100, (int)$limit));
+        if(class_exists('VonSEO_Overrides'))
+        {
+            VonSEO_Overrides::reconcile($this);
+        }
         $now = $this->now();
         $query = $db->simple_select(
             'vonseo_indexnow_queue',
@@ -277,6 +307,15 @@ class VonSEO_IndexNow
             $submitUrl = $eventType === 'removed'
                 ? trim((string)$row['url'])
                 : $this->publicThreadUrl((int)$row['tid']);
+
+            if($eventType === 'current' && $submitUrl === false && $this->policyBlocked)
+            {
+                // Policy changed after queueing. Only remembered public history
+                // may become a removal notification; never reconstruct a URL.
+                $history = $this->threadHistory((int)$row['tid']);
+                $submitUrl = !empty($history['last_public_url']) ? trim((string)$history['last_public_url']) : false;
+                $eventType = 'removed';
+            }
 
             if($submitUrl === false || !$this->isBoardUrl($submitUrl))
             {
@@ -322,10 +361,9 @@ class VonSEO_IndexNow
                 $deleted = $this->deleteSelectedRow($row['condition']);
                 if($row['event_type'] === 'removed')
                 {
-                    if($deleted)
-                    {
-                        $this->forgetThreadHistory((int)$row['tid']);
-                    }
+                    // Keep previously public evidence. A restored-thread admission
+                    // can arrive after the generation delete; deleting history here
+                    // would erase its URL/cooldown. Retention grants no new eligibility.
                     continue;
                 }
 
@@ -405,6 +443,12 @@ class VonSEO_IndexNow
     /** @return array */
     protected function submitUrlsResult(array $urls)
     {
+        if(!VonSEO_Utils::guestCanAccessBoard())
+        {
+            return $this->failure('config_error',
+                'IndexNow is paused because MyBB does not allow Guest board access. Queued URLs are retained.',
+                0, self::CONFIG_RETRY_DELAY, false);
+        }
         if(empty($urls))
         {
             return $this->failure('config_error', 'No valid URLs were supplied to IndexNow.', 0, self::CONFIG_RETRY_DELAY, false);
@@ -652,13 +696,12 @@ class VonSEO_IndexNow
         {
             return;
         }
-        $history = $this->threadHistory($tid);
-        $db->replace_query('vonseo_indexnow_threads', array(
-            'tid' => (int)$tid,
-            'last_public_url' => $db->escape_string($url),
-            'last_submitted_at' => !empty($history['last_submitted_at']) ? (int)$history['last_submitted_at'] : 0,
-            'updated_at' => $this->now()
-        ));
+        // Admission owns the URL, not the worker's cooldown timestamp.
+        $db->write_query("INSERT INTO ".TABLE_PREFIX."vonseo_indexnow_threads
+            (tid,last_public_url,last_submitted_at,updated_at)
+            VALUES (".(int)$tid.",'".$db->escape_string($url)."',0,".$this->now().")
+            ON DUPLICATE KEY UPDATE last_public_url=VALUES(last_public_url),
+            updated_at=GREATEST(updated_at,VALUES(updated_at))");
     }
 
     /**
@@ -674,25 +717,13 @@ class VonSEO_IndexNow
         {
             return;
         }
-        $db->replace_query('vonseo_indexnow_threads', array(
-            'tid' => (int)$tid,
-            'last_public_url' => $db->escape_string($url),
-            'last_submitted_at' => (int)$submittedAt,
-            'updated_at' => (int)$submittedAt
-        ));
-    }
-
-    /**
-     * @param int|string $tid
-     * @return void
-     */
-    protected function forgetThreadHistory($tid)
-    {
-        global $db;
-        if($db->table_exists('vonseo_indexnow_threads'))
-        {
-            $db->delete_query('vonseo_indexnow_threads', "tid='".(int)$tid."'");
-        }
+        // An older worker finishing last must not regress cooldown or undo
+        // a newer URL admitted while its request was in flight.
+        $db->write_query("INSERT INTO ".TABLE_PREFIX."vonseo_indexnow_threads
+            (tid,last_public_url,last_submitted_at,updated_at)
+            VALUES (".(int)$tid.",'".$db->escape_string($url)."',".(int)$submittedAt.",".(int)$submittedAt.")
+            ON DUPLICATE KEY UPDATE last_submitted_at=GREATEST(last_submitted_at,VALUES(last_submitted_at)),
+            updated_at=GREATEST(updated_at,VALUES(updated_at))");
     }
 
     /**
@@ -740,6 +771,8 @@ class VonSEO_IndexNow
     {
         global $db;
 
+        $this->policyBlocked = false;
+
         $tid = (int)$tid;
         if($tid <= 0)
         {
@@ -753,6 +786,11 @@ class VonSEO_IndexNow
         }
         if(!$this->isForumPublic((int)$thread['fid']))
         {
+            return false;
+        }
+        if(class_exists('VonSEO_Overrides') && VonSEO_Overrides::noindexThread($tid, (int)$thread['fid']))
+        {
+            $this->policyBlocked = true;
             return false;
         }
         return $this->url->thread($tid, 0, isset($thread['subject']) ? $thread['subject'] : '');
@@ -797,7 +835,7 @@ class VonSEO_IndexNow
         global $cache;
 
         $fid = (int)$fid;
-        if($fid <= 0)
+        if($fid <= 0 || !VonSEO_Utils::guestCanAccessBoard())
         {
             return false;
         }

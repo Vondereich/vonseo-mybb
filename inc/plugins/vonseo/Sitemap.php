@@ -28,6 +28,11 @@ class VonSEO_Sitemap
 
     public function output()
     {
+        if(!VonSEO_Utils::guestCanAccessBoard())
+        {
+            $this->outputInvalid();
+            return;
+        }
         $type = strtolower(VonSEO_Utils::input('type', 'index'));
 
         if($type === 'forums')
@@ -83,6 +88,10 @@ class VonSEO_Sitemap
         if(!empty($fids))
         {
             $where = "visible='1' AND dateline<='{$timeNow}' AND fid IN (".implode(',', $fids).") AND closed NOT LIKE 'moved|%'";
+            if(class_exists('VonSEO_Overrides'))
+            {
+                $where .= VonSEO_Overrides::threadSitemapPredicate();
+            }
             $threadCount = $this->threadCount($fids, $where);
         }
 
@@ -154,6 +163,10 @@ class VonSEO_Sitemap
         }
 
         $allowed = array_flip($this->publicForumIds());
+        if(class_exists('VonSEO_Overrides'))
+        {
+            $allowed = array_flip(VonSEO_Overrides::indexedForumIds(array_keys($allowed)));
+        }
 
         echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
         echo "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
@@ -191,6 +204,10 @@ class VonSEO_Sitemap
         {
             $timeNow = defined('TIME_NOW') ? TIME_NOW : time();
             $where = "visible='1' AND dateline<='{$timeNow}' AND fid IN (".implode(',', $fids).") AND closed NOT LIKE 'moved|%'";
+            if(class_exists('VonSEO_Overrides'))
+            {
+                $where .= VonSEO_Overrides::threadSitemapPredicate();
+            }
             $threadCount = $this->threadCount($fids, $where);
         }
 
@@ -463,10 +480,12 @@ class VonSEO_Sitemap
 
         $now = defined('TIME_NOW') ? (int)TIME_NOW : time();
         $key = 'vonseo_sitemap_count_'.substr(hash('sha256', implode(',', $fids)), 0, 16);
+        $revision = class_exists('VonSEO_Overrides') ? VonSEO_Overrides::revision() : '';
         if(is_object($cache) && method_exists($cache, 'read'))
         {
             $cached = $cache->read($key);
-            if(is_array($cached) && isset($cached['expires'], $cached['count']) && (int)$cached['expires'] >= $now)
+            if(is_array($cached) && isset($cached['expires'], $cached['count']) && (int)$cached['expires'] >= $now &&
+               (isset($cached['revision']) ? (string)$cached['revision'] : '') === $revision)
             {
                 return max(0, (int)$cached['count']);
             }
@@ -476,7 +495,7 @@ class VonSEO_Sitemap
         $count = max(0, (int)$db->fetch_field($query, 'total'));
         if(is_object($cache) && method_exists($cache, 'update'))
         {
-            $cache->update($key, array('count' => $count, 'expires' => $now + 600));
+            $cache->update($key, array('count' => $count, 'expires' => $now + 600, 'revision' => $revision));
         }
         return $count;
     }

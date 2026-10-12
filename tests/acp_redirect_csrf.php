@@ -302,6 +302,10 @@ elseif(in_array($mode, array('report', 'report_head', 'report_expired'), true))
 {
     $GLOBALS['mybb']->request_method = $mode === 'report_head' ? 'head' : 'get';
 }
+// Real MyBB normalizes every non-POST request, including HEAD, to get.
+$_SERVER['REQUEST_METHOD'] = in_array($mode, array('head', 'report_head'), true) ? 'HEAD' :
+    ($GLOBALS['mybb']->request_method === 'post' ? 'POST' : 'GET');
+$GLOBALS['mybb']->request_method = $_SERVER['REQUEST_METHOD'] === 'POST' ? 'post' : 'get';
 $GLOBALS['mybb']->input['action'] = $action;
 if($mode === 'csrf')
 {

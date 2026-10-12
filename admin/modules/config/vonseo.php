@@ -33,6 +33,16 @@ $pluginVersion = !empty($pluginInfo['version']) ? $pluginInfo['version'] : 'Unkn
 $canManageSiteSettings = function_exists('check_admin_permissions') &&
     (check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_settings'), false) ||
      check_admin_permissions(array('module' => 'config', 'action' => 'settings'), false));
+$canManageSEO = function_exists('check_admin_permissions') &&
+    check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_overrides'), false);
+if(in_array($action, array('seo', 'seo_save', 'seo_reset', 'seo_preview'), true) && !$canManageSEO)
+{
+    if(function_exists('check_admin_permissions'))
+    {
+        check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_overrides'));
+    }
+    die('Access denied.');
+}
 if(in_array($action, array('site_details_save', 'indexnow_rotate_key'), true) && !$canManageSiteSettings)
 {
     if(function_exists('check_admin_permissions'))
@@ -182,7 +192,7 @@ CSS;
  */
 function vonseo_admin_tabs($active)
 {
-    global $page;
+    global $page, $canManageSEO;
 
     $tabs = array(
         'overview' => array(
@@ -207,6 +217,11 @@ function vonseo_admin_tabs($active)
         )
     );
 
+    if($canManageSEO)
+    {
+        $tabs['seo'] = array('title' => 'SEO Controls', 'link' => 'index.php?module=config-vonseo&amp;action=seo',
+            'description' => 'Forum/thread overrides, read-only Inspector and illustrative previews.');
+    }
     $page->output_nav_tabs($tabs, $active);
 }
 
@@ -230,6 +245,13 @@ function vonseo_admin_server_help()
 }
 
 $serverHelp = vonseo_admin_server_help();
+
+if(in_array($action, array('seo', 'seo_save', 'seo_reset', 'seo_preview'), true))
+{
+    require_once MYBB_ROOT.'inc/plugins/vonseo/AdminSEO.php';
+    VonSEO_AdminSEO::handle($action);
+    exit;
+}
 
 if($action === 'site_details_save')
 {
@@ -417,7 +439,9 @@ if($action === 'redirects_import')
     }
 
     // A HEAD probe must not consume the administrator's one-use result.
-    $importReport = $mybb->request_method === 'get' ? VonSEO_AdminImport::take() : array();
+    // MyBB calls HEAD/OPTIONS "get"; only a real GET may consume feedback.
+    $importReport = isset($_SERVER['REQUEST_METHOD']) && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET'
+        ? VonSEO_AdminImport::take() : array();
     $page->output_header('VonSEO - Import Redirects');
     vonseo_admin_tabs('redirects');
 
@@ -1005,8 +1029,8 @@ $siteDetails->construct_header('Value');
 $siteDetailRows = array(
     array('Board Name', 'site_name', isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : '', 'Used for site name, titles and Open Graph.'),
     array('Board URL', 'site_url', $bburl, 'Canonical base. Change only when the forum really moves.'),
-    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim(VonSEO_Utils::plainText($mybb->settings['homename'])) : '', 'Organization / publisher name in schema.'),
-    array('Homepage URL', 'homepage_url', isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '', 'Organization / publisher URL in schema.'),
+    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim(VonSEO_Utils::plainText($mybb->settings['homename'])) : '', 'Parent site / Organization publisher name. It may differ from the Board Name.'),
+    array('Homepage URL', 'homepage_url', isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '', 'Parent site / Organization publisher URL. It may differ from the forum Board URL; no automatic synchronization is performed.'),
     array('SEO Description', 'site_description', isset($mybb->settings['vonseo_site_description']) ? trim((string)$mybb->settings['vonseo_site_description']) : '', 'VonSEO homepage description and fallback summary.')
 );
 if($canManageSiteSettings)
@@ -1045,6 +1069,15 @@ else
 }
 
 $attention = array();
+$configuredImage = trim((string)VonSEO_Utils::setting('vonseo_default_image', ''));
+if($configuredImage === '')
+{
+    echo '<div class="vs-notice"><strong>Social image: optional.</strong> No default image is configured. Text-only previews are valid; add a public image in Advanced settings if you want an image fallback.</div>';
+}
+elseif((new VonSEO_Url())->image($configuredImage) === '')
+{
+    $attention[] = 'Default Social Image is configured but invalid. Use a safe HTTP(S) or board-relative image URL in Advanced settings. No automatic overwrite or server image fetch is performed.';
+}
 if($schemaVersion !== VonSEO_State::SCHEMA_VERSION)
 {
     $attention[] = 'Database upgrade is incomplete (schema '.$schemaVersion.' of '.VonSEO_State::SCHEMA_VERSION.'). Re-activate VonSEO once.';

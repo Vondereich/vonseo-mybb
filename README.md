@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Current version: **1.0.8**. Keyword URLs remain opt-in and off by default. This update brings Portal thread/forum links into the keyword URL family, makes metadata replacement respect HTML tag boundaries, validates public image URLs and uses guest-visible profile URLs for article authors. The read-only inspector, one-use ACP CSV import report, searchable lists and Nginx rewrite examples remain available. It does not change the database schema or SEO defaults and is not a search-ranking or indexing guarantee.
+Development version: **1.1.0-beta.4**. Latest stable release: **1.0.8**. This beta adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test on staging before use; stable release gates are still open. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
@@ -29,6 +29,7 @@ inc/
 │       ├── AdminImport.php
 │       ├── AdminList.php
 │       ├── AdminRedirects.php
+│       ├── AdminSEO.php
 │       ├── Core.php
 │       ├── Context.php
 │       ├── Errors.php
@@ -36,6 +37,7 @@ inc/
 │       ├── IndexNow.php
 │       ├── Keyword.php
 │       ├── Meta.php
+│       ├── Overrides.php
 │       ├── Redirects.php
 │       ├── Robots.php
 │       ├── Schema.php
@@ -69,7 +71,7 @@ extras/
 6. Admin CP → Configuration → **VonSEO** for the overview, **How to use** guide, redirects and the 404 monitor.
 7. Admin CP → Configuration → Settings → **VonSEO** for engine settings.
 
-Uninstalling through MyBB removes VonSEO's settings, redirect/404/IndexNow queue tables, queue task and task logs; deactivation keeps that data. Uninstall does not delete uploaded plugin files or server rewrite rules. Back up redirect rules before uninstalling if you may need them again.
+Uninstalling through MyBB removes VonSEO's settings, SEO override/redirect/404/IndexNow tables, queue task and task logs; deactivation keeps that data. Uninstall does not delete uploaded plugin files or server rewrite rules. Back up rules and overrides before uninstalling if you may need them again.
 
 ## Quick start
 
@@ -90,6 +92,23 @@ Recommended starting policy:
 - leave legacy SearchAction schema off;
 - test AI crawler choices against your site's publishing policy;
 - enable keyword URLs only after the direct-route test described below passes.
+
+## SEO Controls and previews (1.1.0 beta)
+
+Open ACP > Configuration > VonSEO > **SEO Controls**. Administrators need both VonSEO module access and the separate **Can manage VonSEO forum/thread SEO overrides and previews?** permission. Redirect/404 access alone does not grant this permission.
+
+1. Select Thread or Forum, enter its numeric ID, and click Inspect. Only ordinary guest-visible forums and approved public threads are supported. The optional Page value follows stock guest pagination, including permitted deletion notices and a forum's default date cutoff. Out-of-range pages return to page 1 with a warning. Custom pagination plugins still need a real guest-page check.
+2. Optionally enter an SEO title, description or social image URL. Blank fields keep automatic values. The native subject/forum name, canonical URL and keyword slug are unchanged; paginated titles retain Page X.
+3. Choose existing indexing policy or Noindex. A forum noindex policy includes its directly contained threads, not its subforums. A thread cannot bypass its forum policy or MyBB guest restrictions. Noindex is not access control: public content remains accessible to visitors.
+4. Click Preview without saving to inspect a validated draft, then Save overrides if appropriate. Reset this entity restores automatic fields and its inherited policy, not a containing forum's policy.
+
+The Inspector is a configuration snapshot, not a live crawl, Google result or indexing report. It shows whether the master engine is on. When the engine is off, metadata and robots values are explicitly labelled inactive candidates, including any noindex override; VonSEO does not enforce them until enabled. ACP does not run a guest first-post renderer: without a custom thread description, it shows the global fallback with a warning. Check the actual page logged out to verify its guest-rendered first-post description. Search/social cards are illustrative; engines may choose different text. Missing optional images are not code errors. Invalid configured images produce feedback; the server never fetches arbitrary image URLs. A preview image is loaded by your browser.
+
+Noindex entities are omitted from their forum/thread sitemap entries and eligible IndexNow submissions. Previously public thread URLs can be queued for removal/recrawl using known public history. Acknowledged removal jobs leave that history intact so a concurrent restoration cannot lose its URL/cooldown; history alone never grants indexing eligibility. Uninstall removes the history table. Forum policy changes reconcile at most 25 threads per worker invocation, so IndexNow follow-up is asynchronous. Noindex does not immediately remove a search result and does not change announcement/calendar policy.
+
+MyBB's Guest access restrictions take precedence over SEO settings. IndexNow pauses when the board requires login, Guest cannot view the board, or the board is closed without Guest permission to view it. Current and historical removal queue entries are retained without spending retries until Guest access returns. Calendar/event sitemap entries additionally require the calendar feature, global Guest calendar access and the calendar-specific permission; a specific grant cannot bypass a global denial. These checks do not reverse URL disclosures that happened before the patch.
+
+Upgrade: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. Do not rely on a beta-only override for privacy. Uninstall permanently removes the override table.
 
 ## Apache setup: using the `extras` files
 
@@ -324,7 +343,7 @@ Safety behavior:
    - `410` when the resource was intentionally removed and has no replacement.
 5. Save the rule and test the source in a logged-out browser. Use the hit counter to confirm real requests are matching it.
 
-External destinations are rejected unless **Allow External Redirect Targets** is enabled. VonSEO rejects self-redirects, known loops, protocol-relative targets, unsafe schemes and header-breaking characters.
+External destinations are rejected unless **Allow External Redirect Targets** is enabled. VonSEO rejects self-redirects, known loops, protocol-relative targets, unsafe schemes and raw control characters. Normalized source paths are limited to 768 UTF-8 characters and resolved destination URLs to 1536 characters, including the origin; invalid UTF-8 and overlong values are rejected, never truncated. On a MyBB utf8/utf8mb3 connection, percent-encode four-byte characters such as emoji: raw forms are rejected because MyBB's escaping would change their identity.
 
 The list shows 50 rules per page. **Search URL** searches both the source and destination as literal text, so characters such as `%` and `_` are not wildcard commands. Combine it with **Response** and **State**, then press **Apply**. Choose **Sort by** and **Order**, or click a sortable table heading on a wide screen. **Reset** removes filters. Page links preserve your search and sorting; the summary totals above remain board-wide rather than filtered totals.
 

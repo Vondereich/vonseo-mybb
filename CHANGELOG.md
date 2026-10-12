@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.1.0-beta.4 - 2026-10-12 (development)
+
+- Reject overlong or malformed UTF-8 redirect sources and resolved destinations before saving. Limits match the database's 768/1536-character columns; URLs are never truncated. On MyBB utf8/utf8mb3 connections, reject unrepresentable four-byte characters instead of silently rewriting URL identity; percent-encoded paths remain supported.
+- Reject raw control characters, including NUL, before redirect parsing/normalization and again at delivery. Invalid edits preserve existing rules; CSV import reports rejected rows and continues with valid records.
+- Preserve one-use CSV feedback on real HEAD/non-GET requests despite MyBB's request-method normalization. Only GET consumes the report.
+- Omit malformed member/calendar action arrays from 404 identities without PHP warnings.
+- Update IndexNow history atomically: admission does not overwrite worker timestamps, successful submissions cannot regress cooldown, and an older worker cannot replace a newly admitted slug. Retain known-public history after removal acknowledgement to protect concurrent restoration; delivery still uses the existing Guest/public eligibility gates.
+- Apply the same Guest board/profile eligibility to profile metadata and schema author links. Restricted profile pages do not inherit personal SEO fields from an administrator session.
+- Keep a separate guest-rendered schema snapshot warning in SEO Controls even when a custom description is supplied. A draft description does not prove live DiscussionForumPosting output.
+- Add focused regressions plus strict real-SQL storage/interleaving and native MyBB database-layer lifecycle checks. Schema remains 6; stable approval, broader runtime matrices and publication are separate gates.
+
+## 1.1.0-beta.3 - 2026-10-12 (development)
+
+- Apply MyBB's board-wide Guest access gates to IndexNow admission, manual transport and worker delivery. Force-login and denied Guest board access cannot publish new subject-derived URLs; closed-board access follows the Guest group's explicit permission. Inaccessible boards pause delivery without consuming retries or changing retained queue generations, including historical removal rows.
+- Require the calendar feature and global Guest calendar permission before evaluating calendar-specific grants. Supplied Context permissions can restrict eligibility but cannot bypass the Guest check. Sitemap output also fails closed on board-wide Guest restrictions.
+- Add regressions for admission/history, raw URL transport, paused queue retention and public reopening; global/specific calendar permission combinations, disabled calendars and actual calendar/event XML. Schema 6 is unchanged. Remaining correctness issues and stable runtime/release gates are not claimed resolved.
+
+## 1.1.0-beta.2 - 2026-10-12 (development)
+
+- Normalize Inspector page requests against stock MyBB guest pagination before generating canonical URLs, titles, form values and draft snapshots. Respect guest deletion-notice permissions and forum default date cutoffs/sticky threads; out-of-range pages use page 1. Existing frontend canonical resolution is unchanged.
+- Show the effective master-engine state in previews. When disabled, label metadata as inactive candidates and do not claim an effective noindex policy or emitted head tags.
+- Add regressions for page boundaries, guest/admin visibility differences, date-cutoff/sticky counts, normalized ACP form values and engine-off previews. Schema 6 is unchanged; stable release and independent-review gates remain open.
+
+## 1.1.0-beta.1 - 2026-10-12 (development)
+
+- Add ACP-only forum/thread SEO title, description and social-image overrides, a dedicated management permission, protected POST mutations and admin action logging. Native names, URLs and keyword slugs remain unchanged.
+- Add configuration snapshots with source labels and validated unsaved desktop/mobile-style search and social previews. ACP automatic thread descriptions explicitly use a fallback until a real guest render is checked; previews are not crawler or indexing reports.
+- Add restrictive noindex policies shared by metadata, forum/thread sitemap eligibility and IndexNow. Forum policy covers direct threads only. Bounded asynchronous forum reconciliation uses public history for removals and generation-checked cursor updates.
+- Add idempotent plugin-owned schema 6 storage, request-cached indexed lookups, sitemap count invalidation and uninstall cleanup; deactivation retains overrides. Clarify parent Homepage identity, optional images and rollback boundaries.
+- Add focused validation, privacy, method/token/permission, preview, queue-race and failed-enqueue regressions. Stable, package, database-matrix and independent-review gates remain pending until separately verified.
+
 ## 1.0.8 - 2026-10-11
 
 - Include Portal latest-thread, announcement-thread, last-post and forum links in keyword navigation rewriting. Preserve guest visibility checks, the ten-thread/post fallback lookup limits, Portal's own canonical and keyword-OFF rollback behavior.

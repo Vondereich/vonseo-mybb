@@ -1,5 +1,6 @@
 param(
-    [string]$Version = '1.0.8'
+    [string]$Version = '1.1.0-beta.4',
+    [switch]$KeepPreviousArchives
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,7 @@ $files = @(
     'inc/plugins/vonseo/AdminImport.php',
     'inc/plugins/vonseo/AdminList.php',
     'inc/plugins/vonseo/AdminRedirects.php',
+    'inc/plugins/vonseo/AdminSEO.php',
     'inc/plugins/vonseo/Context.php',
     'inc/plugins/vonseo/Core.php',
     'inc/plugins/vonseo/Errors.php',
@@ -38,6 +40,7 @@ $files = @(
     'inc/plugins/vonseo/IndexNow.php',
     'inc/plugins/vonseo/Keyword.php',
     'inc/plugins/vonseo/Meta.php',
+    'inc/plugins/vonseo/Overrides.php',
     'inc/plugins/vonseo/Redirects.php',
     'inc/plugins/vonseo/Robots.php',
     'inc/plugins/vonseo/Schema.php',
@@ -173,6 +176,12 @@ else
 }
 
 Write-Output "Verified $destination ($($files.Count) byte-matching files)"
+
+if($KeepPreviousArchives)
+{
+    Write-Output 'Previous release ZIPs retained for rollback.'
+    return
+}
 
 # Prune only prior VonSEO release/test ZIPs in this exact repository root.
 # The new package must pass the readback above before anything is removed.

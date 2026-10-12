@@ -27,6 +27,7 @@ function task_vonseo_indexnow($task)
     require_once MYBB_ROOT.'inc/plugins/vonseo/Utils.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/Url.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/State.php';
+    require_once MYBB_ROOT.'inc/plugins/vonseo/Overrides.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/IndexNow.php';
 
     $result = (new VonSEO_IndexNow())->processQueue(25);

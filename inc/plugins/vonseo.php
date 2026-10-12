@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.0.8
+ * @version 1.1.0-beta.4
  */
 
 if(!defined('IN_MYBB'))
@@ -137,7 +137,7 @@ function vonseo_install()
         array(
             'name'        => 'vonseo_default_image',
             'title'       => 'Default Social Image',
-            'description' => 'Absolute or board-relative image URL used when a page has no suitable image.',
+            'description' => 'Optional HTTP(S) or board-relative image used when a page has no image. Blank is allowed; an invalid configured URL is omitted. VonSEO does not fetch or test image reachability.',
             'optionscode' => 'text',
             'value'       => '',
             'disporder'   => 5
@@ -514,6 +514,12 @@ function vonseo_run_migrations()
     {
         vonseo_migrate_schema_5();
     }
+
+    vonseo_migrate_schema_6();
+    if($version < 6)
+    {
+        VonSEO_State::setSchemaVersion(6);
+    }
 }
 
 /**
@@ -679,6 +685,39 @@ function vonseo_migrate_schema_5()
     }
 }
 
+/** Establish plugin-owned entity metadata and bounded policy reconciliation. */
+function vonseo_migrate_schema_6()
+{
+    global $db, $cache;
+    if(!$db->table_exists('vonseo_overrides'))
+    {
+        $collation = $db->build_create_table_collation();
+        $db->write_query("CREATE TABLE ".TABLE_PREFIX."vonseo_overrides (
+            entity_type VARCHAR(8) NOT NULL,
+            entity_id INT UNSIGNED NOT NULL,
+            seo_title VARCHAR(255) NOT NULL DEFAULT '',
+            seo_description VARCHAR(320) NOT NULL DEFAULT '',
+            seo_image VARCHAR(2048) NOT NULL DEFAULT '',
+            index_mode VARCHAR(8) NOT NULL DEFAULT 'inherit',
+            pending_mode VARCHAR(8) NOT NULL DEFAULT '',
+            cursor_tid INT UNSIGNED NOT NULL DEFAULT 0,
+            job_generation CHAR(32) NOT NULL DEFAULT '',
+            updated_by INT UNSIGNED NOT NULL DEFAULT 0,
+            updated_at INT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (entity_type,entity_id),
+            KEY pending_mode (pending_mode,entity_type,entity_id)
+        ) {$collation};");
+    }
+    if(is_object($cache) && method_exists($cache, 'update'))
+    {
+        $cache->update('vonseo_override_schema', array('ready' => true));
+    }
+    if(class_exists('VonSEO_Overrides'))
+    {
+        VonSEO_Overrides::resetRuntime();
+    }
+}
+
 /** Register or repair the scheduled worker when the plugin is active. */
 function vonseo_enable_indexnow_task()
 {
@@ -794,6 +833,10 @@ function vonseo_uninstall()
     {
         $db->drop_table('vonseo_meta');
     }
+    if($db->table_exists('vonseo_overrides'))
+    {
+        $db->drop_table('vonseo_overrides');
+    }
     vonseo_remove_indexnow_task();
     VonSEO_State::forget();
 
@@ -829,6 +872,7 @@ function vonseo_require_core()
     require_once $base.'State.php';
     require_once $base.'Url.php';
     require_once $base.'Html.php';
+    require_once $base.'Overrides.php';
     require_once $base.'Keyword.php';
     require_once $base.'Redirects.php';
     require_once $base.'Errors.php';
@@ -1260,6 +1304,7 @@ function vonseo_admin_permissions($permissions)
 {
     $permissions['vonseo'] = 'Can view VonSEO health and manage redirects and the 404 monitor?';
     $permissions['vonseo_settings'] = 'Can change VonSEO Site Details and rotate the IndexNow key?';
+    $permissions['vonseo_overrides'] = 'Can manage VonSEO forum/thread SEO overrides and previews?';
     return $permissions;
 }
 

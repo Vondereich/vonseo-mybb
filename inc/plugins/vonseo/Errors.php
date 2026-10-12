@@ -233,12 +233,12 @@ class VonSEO_Errors
 
         $input = array();
         parse_str((string)$query, $input);
-        if($script === 'member.php' && (!isset($input['action']) || strtolower((string)$input['action']) !== 'profile'))
+        if($script === 'member.php' && (!isset($input['action']) || !is_string($input['action']) || strtolower($input['action']) !== 'profile'))
         {
             return '';
         }
         if($script === 'calendar.php' && isset($input['action']) &&
-           strtolower((string)$input['action']) !== 'event')
+           (!is_string($input['action']) || strtolower($input['action']) !== 'event'))
         {
             return '';
         }

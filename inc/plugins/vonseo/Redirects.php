@@ -8,6 +8,8 @@ class VonSEO_Redirects
 {
     const MAX_CSV_BYTES = 2097152;
     const MAX_CSV_ROWS = 5000;
+    const MAX_SOURCE_CHARACTERS = 768;
+    const MAX_TARGET_CHARACTERS = 1536;
     /**
      * @var VonSEO_Url
      */
@@ -143,7 +145,7 @@ class VonSEO_Redirects
 
         if($source === false || $source === '/')
         {
-            $errors[] = 'Source must be a valid board-relative path and cannot be the board root.';
+            $errors[] = 'Source must be a valid UTF-8 board-relative path of at most 768 characters and cannot be the board root.';
         }
 
         if(!in_array($code, $this->allowedCodes))
@@ -160,7 +162,7 @@ class VonSEO_Redirects
             $normalizedTarget = $this->normalizeTarget($target);
             if($normalizedTarget === false)
             {
-                $errors[] = 'Destination URL is invalid or not allowed by VonSEO security settings.';
+                $errors[] = 'Destination URL must be valid UTF-8, at most 1536 characters after resolution, and allowed by VonSEO security settings.';
             }
             else
             {
@@ -275,8 +277,9 @@ class VonSEO_Redirects
      */
     public function normalizeSource($source)
     {
+        if(preg_match('/[\x00-\x1F\x7F]/', (string)$source)) { return false; }
         $source = trim(html_entity_decode((string)$source, ENT_QUOTES, 'UTF-8'));
-        if($source === '' || preg_match('/[\r\n]/', $source))
+        if($source === '' || preg_match('/[\x00-\x1F\x7F]/', $source))
         {
             return false;
         }
@@ -311,7 +314,8 @@ class VonSEO_Redirects
         $path = $this->stripBoardBasePath($path);
         $query = isset($parts['query']) && $parts['query'] !== '' ? '?'.$parts['query'] : '';
 
-        return $path.$query;
+        $normalized = $path.$query;
+        return $this->fitsStorage($normalized, self::MAX_SOURCE_CHARACTERS) ? $normalized : false;
     }
 
     /**
@@ -320,8 +324,9 @@ class VonSEO_Redirects
      */
     public function normalizeTarget($target)
     {
+        if(preg_match('/[\x00-\x1F\x7F]/', (string)$target)) { return false; }
         $target = trim(html_entity_decode((string)$target, ENT_QUOTES, 'UTF-8'));
-        if($target === '' || preg_match('/[\r\n]/', $target) || strpos($target, '//') === 0)
+        if($target === '' || preg_match('/[\x00-\x1F\x7F]/', $target) || strpos($target, '//') === 0)
         {
             return false;
         }
@@ -339,12 +344,17 @@ class VonSEO_Redirects
             $relative = ltrim($target, '/');
             $resolvedInput = html_entity_decode(trim($relative), ENT_QUOTES, 'UTF-8');
             $inputParts = @parse_url($resolvedInput);
-            if(preg_match('/[\r\n]/', $resolvedInput) || strpos($resolvedInput, '//') === 0 ||
+            if(preg_match('/[\x00-\x1F\x7F]/', $resolvedInput) || strpos($resolvedInput, '//') === 0 ||
                 isset($inputParts['user']) || isset($inputParts['pass']))
             {
                 return false;
             }
             $target = $this->url->absolute($relative);
+        }
+
+        if(preg_match('/[\x00-\x1F\x7F]/', $target) || !$this->fitsStorage($target, self::MAX_TARGET_CHARACTERS))
+        {
+            return false;
         }
 
         $parts = @parse_url($target);
@@ -362,6 +372,21 @@ class VonSEO_Redirects
         }
 
         return $target;
+    }
+
+    /** VARCHAR limits count characters, not UTF-8 bytes. Never truncate URL identity. */
+    protected function fitsStorage(string $value, int $characters): bool
+    {
+        global $db;
+        if(strlen($value) > $characters * 4 || preg_match('//u', $value) !== 1 ||
+            preg_match_all('/./us', $value) > $characters)
+        {
+            return false;
+        }
+        // MyBB's utf8/utf8mb3 escape_string strips four-byte codepoints.
+        // Reject instead of silently changing source hashes or destination URLs.
+        $encoding = is_object($db) && isset($db->db_encoding) ? strtolower((string)$db->db_encoding) : '';
+        return !in_array($encoding, array('utf8', 'utf8mb3'), true) || !preg_match('/[\xF0-\xF4]/', $value);
     }
 
     /**

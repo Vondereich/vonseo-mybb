@@ -10,6 +10,7 @@ require_once dirname(__DIR__).'/inc/plugins/vonseo/Redirects.php';
 /** In-memory persistence only; saveRule() and importCsv() are not overridden. */
 class TargetTestDb
 {
+    public $db_encoding = 'utf8mb4';
     /** @var array<int,array> */
     public $rows = array();
     /** @var int */
@@ -161,6 +162,55 @@ foreach(array('https://example.com', 'https://example.com/forum', 'https://examp
     checkTarget($redirects->normalizeTarget($invalid[6]) === false && $redirects->normalizeTarget($invalid[11]) === false,
         $base.' external opt-in does not permit credentials or normalized CRLF');
     $mybb->settings['vonseo_external_redirects'] = '0';
+    foreach(array('a', 'é', '界', '😀') as $character)
+    {
+        $source = '/'.str_repeat($character, 767);
+        $prefix = $base.'/';
+        $target = $prefix.str_repeat($character, 1536 - strlen($prefix));
+        $boundary = $redirects->saveRule($source, $target, 301);
+        checkTarget(empty($boundary['errors']) && $db->rows[$boundary['rid']]['source_path'] === $source &&
+            $db->rows[$boundary['rid']]['target_url'] === $target, $base.' exact VARCHAR character boundaries preserve '.$character);
+    }
+    foreach(array(
+        array('/'.str_repeat('a', 768), '/valid-target'),
+        array('/'.str_repeat('é', 768), '/valid-target'),
+        array('/valid-source', $base.'/'.str_repeat('a', 1537 - strlen($base.'/'))),
+        array('/valid-source', $base.'/'.str_repeat('界', 1537 - strlen($base.'/'))),
+        array("/bad\xFFsource", '/valid-target'),
+        array('/valid-source', "/bad\xFFtarget"),
+        array('/valid-source', "/target\0tail"),
+        array('/valid-source', "\0/target")
+    ) as $i => $invalidRule)
+    {
+        if($invalidRule[0] === '/valid-source') { $invalidRule[0] .= '-'.$i; }
+        $before = $db->rows; $writes = $db->writes;
+        $rejected = $redirects->saveRule($invalidRule[0], $invalidRule[1], 301);
+        checkTarget(!empty($rejected['errors']) && $db->rows === $before && $db->writes === $writes,
+            $base.' invalid storage/control create makes no write #'.$i);
+        $rejected = $redirects->saveRule($invalidRule[0], $invalidRule[1], 301, 1, $rid);
+        checkTarget(!empty($rejected['errors']) && $db->rows === $before && $db->writes === $writes,
+            $base.' invalid storage/control edit preserves old row #'.$i);
+    }
+    checkTarget($redirects->normalizeTarget("/target\0tail") === false && $redirects->normalizeTarget("\0/target") === false,
+        $base.' raw NUL is rejected before parse_url or trim can reinterpret it');
+    $db->db_encoding = 'utf8';
+    $before = $db->rows; $writes = $db->writes;
+    checkTarget(!empty($redirects->saveRule('/emoji-😀', '/valid', 301)['errors']) &&
+        !empty($redirects->saveRule('/charset-target', '/emoji-😀', 301)['errors']) && $db->rows === $before && $db->writes === $writes,
+        $base.' utf8mb3 cannot silently lose four-byte URL characters');
+    checkTarget(empty($redirects->saveRule('/encoded-emoji', '/emoji-%F0%9F%98%80', 301)['errors']),
+        $base.' percent-encoded emoji remains representable on utf8mb3');
+    $db->db_encoding = 'utf8mb4';
+    $csv = "source_path,target_url,status_code,enabled\n/".str_repeat('a', 768).",/target,301,1\n"
+        ."/storage-target,".$base.'/'.str_repeat('b', 1537 - strlen($base.'/')).",301,1\n/storage-good,/valid,301,1\n";
+    $result = $redirects->importCsv($csv);
+    checkTarget($result['imported'] === 1 && $result['skipped'] === 2 && count($result['errors']) === 2,
+        $base.' CSV reports overlong rows individually and continues');
+    $db->rows[$rid]['target_url'] = $base."/invalid\0target";
+    $before = $db->rows; $writes = $db->writes;
+    $_SERVER['REQUEST_URI'] = (parse_url($base, PHP_URL_PATH) ?: '').'/manual-good';
+    checkTarget($redirects->handleRequest() === false && $db->rows === $before && $db->writes === $writes,
+        $base.' runtime rejects already stored NUL without a hit or header warning');
 }
 echo 'Redirect target policy: '.$passed.' passed, '.$failed.' failed'.PHP_EOL;
 exit($failed ? 1 : 0);
