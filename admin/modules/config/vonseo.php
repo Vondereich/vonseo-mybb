@@ -113,6 +113,9 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-wrap{max-width:100%;margin-bottom:18px;overflow-x:auto;border:1px solid transparent}
 .vs-table-wrap table{min-width:680px}
 .vs-table-wrap td{vertical-align:middle}
+.vs-table-site-details table{width:100%;min-width:0;table-layout:fixed}
+.vs-table-site-details td{overflow-wrap:anywhere}
+.vs-table-site-details input[type=text],.vs-table-site-details textarea{box-sizing:border-box;max-width:100%;min-height:36px}
 .vs-code{display:inline-block;max-width:520px;overflow-wrap:anywhere;color:#2b405e;font-family:Consolas,"Liberation Mono",monospace;font-size:11px;line-height:1.5}
 .vs-subtle{color:#7a8493;font-size:11px;line-height:1.45}
 .vs-row-actions{display:flex;justify-content:center;gap:10px;white-space:nowrap}
@@ -182,6 +185,7 @@ $vonseoAdminCss = <<<'CSS'
 /* Only VonSEO pages load these overrides. Keep the native menu accessible
    below the content instead of consuming 200px of a phone-sized viewport. */
 @media(max-width:680px){#page{display:flex;flex-direction:column}#content{margin-left:0;padding:10px;min-width:0}#left_menu{float:none;width:100%;order:1}#left_menu ul.menu{display:flex;flex-wrap:wrap;gap:4px 12px}#left_menu ul.menu li{flex:1 1 140px}}
+@media(max-width:680px){.vs-table-site-details table,.vs-table-site-details tbody,.vs-table-site-details tbody tr{display:block;width:100%;box-sizing:border-box}.vs-table-site-details thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.vs-table-site-details tbody td{display:block;width:auto!important;box-sizing:border-box;padding:8px 10px}.vs-table-site-details input[type=text],.vs-table-site-details textarea{min-height:44px}.vs-table-site-details .title{overflow-wrap:anywhere}}
 @media(max-width:420px){.vs-summary,.vs-summary.vs-three{grid-template-columns:1fr}.vs-setup-head{align-items:flex-start;flex-direction:column}.vs-table-cards tbody td{grid-template-columns:minmax(85px,34%) minmax(0,1fr)}}
 </style>
 CSS;
@@ -1056,7 +1060,7 @@ foreach($siteDetailRows as $siteDetailRow)
     $siteDetails->construct_cell($field);
     $siteDetails->construct_row();
 }
-echo '<div class="vs-table-wrap">';
+echo '<div class="vs-table-wrap vs-table-site-details">';
 $siteDetails->output('Site Details: shared directly with MyBB');
 echo '</div>';
 if($canManageSiteSettings)

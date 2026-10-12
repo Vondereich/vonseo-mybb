@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-12.
 
-Current stable release: **1.0.8**. Development build: **1.1.0-beta.4 - SEO Controls & Preview**.
+Current stable release: **1.0.8**. Development build: **1.1.0-beta.5 - SEO Controls & Preview**.
 
 This roadmap separates released behavior, the agreed next-release scope and deferred candidates. The 1.1.0 scope is implemented in a development beta, not stable-release approved. No release date or search-ranking result is promised. Historical verification below describes those builds, not every deployment of the current plugin. See [CHANGELOG.md](../CHANGELOG.md) for individual maintenance changes.
 
@@ -92,7 +92,7 @@ This roadmap separates released behavior, the agreed next-release scope and defe
 
 - Search, response/state filters, sorting and 50-row pagination for ACP redirect lists; search, sorting and pagination for the 404 monitor.
 - Root/subfolder Nginx snippets and server-aware ACP instructions. Nginx fixture routing was exercised locally; a complete installed Nginx/MyBB deployment and LiteSpeed runtime remain separate compatibility checks.
-- Portable contributor verification runner and GitHub Actions definitions for PHP 7.1-8.5, MySQL/MariaDB and public-package parity. Remote matrix results remain unverified until the workflow runs.
+- Portable contributor verification runner and GitHub Actions definitions for PHP 7.1-8.5, MySQL/MariaDB and public-package parity. The 1.1.0 test branch subsequently passed the Linux PHP matrix, MySQL 8.0/MariaDB 10.11 database-layer checks and Windows package job; installed HTTP boards on every runtime/server are not claimed.
 - No database migration or change to keyword/indexing defaults.
 
 ### v1.0.2 Keyword post-target maintenance: implemented
@@ -139,7 +139,7 @@ This roadmap separates released behavior, the agreed next-release scope and defe
 
 ## v1.1.0 SEO Controls & Preview: beta in progress
 
-The following scope has source implementation in 1.1.0-beta.4. The Inspector normalizes stock guest page ranges and distinguishes inactive engine candidates. Board-wide Guest gates now protect IndexNow and sitemap eligibility; calendar-specific grants cannot bypass global Guest calendar restrictions. Beta.4 closes the seven scoped correctness findings, including charset identity and concurrent-removal history follow-ups, with regression and isolated MySQL proofs. Stable approval remains gated by the checks below. ACP automatic thread-description and schema snapshots do not execute the guest first-post renderer; the beta warns separately even when a description override is used. Management is ACP-only; URL schemes and existing site settings are not silently replaced.
+The following scope has source implementation in 1.1.0-beta.5. The Inspector normalizes stock guest page ranges and distinguishes inactive engine candidates. Board-wide Guest gates now protect IndexNow and sitemap eligibility; calendar-specific grants cannot bypass global Guest calendar restrictions. Beta.4 closes the seven scoped correctness findings, including charset identity and concurrent-removal history follow-ups, with regression and isolated MySQL proofs. Beta.5 fixes the mobile Site Details overflow found during the release-gate pass. The Linux PHP matrix and native MySQL/MariaDB lifecycle checks have run successfully, and the real local restricted-account test passes 30 checks. Stable approval and publication still require the final-tree/package checks below. ACP automatic thread-description and schema snapshots do not execute the guest first-post renderer; the beta warns separately even when a description override is used. Management is ACP-only; URL schemes and existing site settings are not silently replaced.
 
 ### 1. Forum and thread SEO overrides
 

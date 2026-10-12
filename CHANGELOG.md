@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0-beta.5 - 2026-10-13 (development)
+
+- Fix mobile Overview Site Details: use a scoped fluid table and stacked labelled fields instead of inheriting the 680px list-table minimum. Preserve the existing field names, permission checks, validation and POST handling; no schema or indexing-policy change.
+- Add explicit local permission and warm-render benchmark helpers, plus scoped layout regressions. The helpers are not shipped in the upload ZIP and do not run automatically against a real board.
+- Clarify the verified Linux PHP matrix and native MySQL/MariaDB lifecycle-check boundaries. Official stable approval and public publication remain separate from this development build.
+
 ## 1.1.0-beta.4 - 2026-10-12 (development)
 
 - Reject overlong or malformed UTF-8 redirect sources and resolved destinations before saving. Limits match the database's 768/1536-character columns; URLs are never truncated. On MyBB utf8/utf8mb3 connections, reject unrepresentable four-byte characters instead of silently rewriting URL identity; percent-encoded paths remain supported.

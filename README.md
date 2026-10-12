@@ -2,14 +2,14 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Development version: **1.1.0-beta.4**. Latest stable release: **1.0.8**. This beta adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test on staging before use; stable release gates are still open. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Development version: **1.1.0-beta.5**. Latest stable release: **1.0.8**. This beta adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test on staging before use; stable approval and publication are separate steps. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
 ## Requirements
 
 - MyBB 1.8.x
-- PHP 7.1 or newer for plugin syntax. PHP 8.3–8.5 passed source lint and self-contained tests; the installed local board was exercised on PHP 8.4. MyBB's own PHP minimum is broader than this plugin's.
+- PHP 7.1 or newer for plugin syntax. Plugin lint and self-contained tests passed on PHP 7.1–8.5 in Ubuntu CI; the installed local board was exercised on PHP 8.4. The CI syntax/test matrix is not a full installed MyBB HTTP test on every PHP version. MyBB's own PHP minimum is broader than this plugin's.
 - MySQL or MariaDB. VonSEO uses MySQL-family upserts plus advisory locking for bounded 404 logging and its durable IndexNow queue.
 - No MyBB core edits
 - Core metadata and native crawler endpoints are web-server independent. Optional Apache-style and Nginx rewrite examples are supplied in `extras/`; merge the matching example into your existing server configuration and test it on staging.
@@ -553,6 +553,8 @@ Version 1.0.0 keeps the broader content coverage from 0.6 and adds fail-closed I
 
 The source repository includes tests and build tools; the upload ZIP deliberately excludes them. With PHP installed, run `php scripts/check.php` from the repository root for syntax checks, the main regression suite, redirect target/save/import policy checks, ACP list/import-report/redirect-inspector tests and the ACP request matrix. These tests use disposable mocks and do not need an installed forum.
 
-`php tests/acp_lists_mysql.php` additionally checks list queries on a real MySQL/MariaDB database using connection-local temporary tables. Supply `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` and `DB_DATABASE` in the environment. It does not create persistent forum tables. GitHub Actions defines PHP 7.1-8.5, MySQL/MariaDB and upload-package jobs; a configured workflow is not evidence that every matrix job has run successfully.
+`php tests/acp_lists_mysql.php` additionally checks list queries on a real MySQL/MariaDB database using connection-local temporary tables. Supply `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` and `DB_DATABASE` in the environment. It does not create persistent forum tables. `tests/release_correctness_mysql.php` exercises strict storage boundaries and IndexNow history interleavings. CI uses pinned MyBB 1.8.41 core code and disposable native tables for install/schema-upgrade/deactivate/reactivate/uninstall checks on MySQL 8.0 and MariaDB 10.11. These are database-layer checks, not full separate HTTP forum installations or an exact historical-release clone.
+
+The source includes two explicitly local playground helpers: `tests/local_permissions_smoke.php` requires `--allow-temporary-data` and temporarily creates staff/content only on the selected `C:/laragon/www/forum` fixture; do not run it on production. `tests/local_render_benchmark.php` compares source roots using warmed native MyBB caches and reports target/query counts. Its repeated-anchor timing excludes HTTP/bootstrap and concurrent load. Neither helper is included in the public upload ZIP or run automatically against an installed forum by CI.
 
 On Windows with Nginx and PHP-CGI installed, `tests/nginx_routes.ps1 -Nginx <nginx.exe> -PhpCgi <php-cgi.exe>` checks both supplied snippets against isolated route fixtures. It uses loopback ports 19081-19083 by default and stops only the helper processes it created. This validates server routing, not a complete installed MyBB deployment.
