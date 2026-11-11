@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.2 - 2026-11-11
+
+- Keep invalid Site Details drafts on the current page instead of losing them through a redirect. Report all field errors together, link each error to its field and mark invalid controls accessibly. Invalid submissions do not change saved settings.
+- Fix wrapped ACP navigation tabs placing their description beside the last row of links on phones. Apply the shared VonSEO button styles to SEO Controls and retain phone-friendly editor controls.
+- Separate the subfolder host-root robots reminder from detected Needs attention issues. Label root and subfolder robots status as a manual check, not a successful or failed HTTP test; no network probe or automatic server edits are added.
+- Clarify the 1.1.x update procedure and root/subfolder deployment guidance. Retain schema 6, existing settings, SEO policies, URL behavior, sitemap eligibility and IndexNow delivery logic.
+- Add focused invalid-draft, output-escaping and root/subfolder/server-guidance regressions. Passing source checks do not replace installed-server or production indexing verification.
+- Keep test fixtures, internal documents and IDE stubs out of the public repository. Public CI checks source syntax/encoding and builds the upload ZIP; full regression fixtures remain local rather than being advertised as public CI jobs.
+
 ## 1.1.0 - 2026-10-13
 
 - Add ACP-only SEO title, description, social-image and restrictive noindex overrides for public forums and threads. Preserve native names, canonical URLs and keyword slugs; forum noindex applies to directly contained threads.
@@ -264,7 +273,7 @@ Modern SEO, AI Crawler Controls, IndexNow Engine & CSV Tools.
 - Added IndexNow automatic submission on thread creation, new reply, and post update hooks.
 - Added IndexNow key verification endpoint (`misc.php?action=vonseo_indexnow_key`).
 - Added CSV Import and Export for redirect rules in Admin CP with overwrite protection.
-- Added comprehensive IDE static analysis stubs (`extras/ide_stubs.php`) for 100% clean type safety.
+- Added local IDE completion stubs for development; these do not prove runtime type safety.
 - Updated author and website repository information to Vondereich.
 
 ## 0.2.0-alpha.1 - 2026-09-22

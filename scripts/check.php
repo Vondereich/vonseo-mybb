@@ -1,5 +1,5 @@
 <?php
-/** Portable CLI verification used locally and by GitHub Actions. */
+/** Public-source syntax and encoding checks. No forum or database is loaded. */
 if(PHP_SAPI !== 'cli')
 {
     http_response_code(404);
@@ -7,84 +7,77 @@ if(PHP_SAPI !== 'cli')
 }
 $root = dirname(__DIR__);
 $mode = isset($argv[1]) ? $argv[1] : 'all';
-if(!in_array($mode, array('all', 'lint', 'tests'), true))
+if(!in_array($mode, array('all', 'lint', 'encoding'), true))
 {
-    fwrite(STDERR, "Usage: php scripts/check.php [all|lint|tests]\n");
+    fwrite(STDERR, "Usage: php scripts/check.php [all|lint|encoding]\n");
     exit(1);
 }
-function runCheck(string $arguments): void
+$files = array();
+foreach(array('admin', 'inc', 'extras', 'scripts', '.github/workflows') as $directory)
 {
-    // Retain the runtime's configured extensions. On Linux, even ctype/json
-    // may be shared modules; -n would silently remove the CI configuration.
-    $command = escapeshellarg(PHP_BINARY).' '.$arguments;
-    passthru($command, $code);
-    if($code !== 0)
+    if(!is_dir($root.'/'.$directory)) { continue; }
+    $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/'.$directory, FilesystemIterator::SKIP_DOTS));
+    foreach($entries as $file)
     {
-        exit($code);
-    }
-}
-if($mode !== 'tests')
-{
-    $count = 0;
-    // Explicit source directories avoid scanning hidden clones, caches or vendor code.
-    foreach(array('admin', 'inc', 'extras', 'tests', 'scripts') as $directory)
-    {
-        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/'.$directory, FilesystemIterator::SKIP_DOTS));
-        foreach($files as $file)
+        if(!$file->isFile()) { continue; }
+        $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+        // Optional local IDE material is neither public source nor runtime code.
+        if($relative === 'extras/ide_stubs.php') { continue; }
+        if(in_array(strtolower($file->getExtension()), array('php', 'html', 'txt', 'conf', 'ps1', 'yml', 'yaml'), true))
         {
-            if($file->isFile() && $file->getExtension() === 'php')
-            {
-                runCheck('-l '.escapeshellarg($file->getPathname()));
-                ++$count;
-            }
+            $files[$relative] = $file->getPathname();
         }
     }
-    echo 'PHP lint: '.$count.' files passed'.PHP_EOL;
 }
+foreach(array('README.md', 'CHANGELOG.md', 'LICENSE.txt', 'NOTICE.txt', '.gitignore') as $relative)
+{
+    if(is_file($root.'/'.$relative)) { $files[$relative] = $root.'/'.$relative; }
+}
+ksort($files);
 if($mode !== 'lint')
 {
-    foreach(array('ctype_digit', 'json_encode', 'hash') as $requiredFunction)
+    $errors = array();
+    foreach($files as $relative => $path)
     {
-        if(!function_exists($requiredFunction))
+        $bytes = file_get_contents($path);
+        foreach(array("\x00\x00\xFE\xFF", "\xFF\xFE\x00\x00", "\xEF\xBB\xBF", "\xFF\xFE", "\xFE\xFF") as $bom)
         {
-            fwrite(STDERR, 'Enable the PHP extension providing '.$requiredFunction.' before running tests.'.PHP_EOL);
-            exit(1);
+            if(strncmp($bytes, $bom, strlen($bom)) === 0)
+            {
+                $errors[] = $relative.': byte order mark';
+                break;
+            }
+        }
+        if(preg_match('//u', $bytes) !== 1) { $errors[] = $relative.': invalid UTF-8'; }
+        if(strpos($bytes, "\0") !== false) { $errors[] = $relative.': literal NUL byte'; }
+        if(substr($relative, -4) === '.php')
+        {
+            if(strncmp($bytes, '<?php', 5) !== 0) { $errors[] = $relative.': output before PHP opening tag'; }
+            if(preg_match('/\?>\s*$/D', $bytes)) { $errors[] = $relative.': unnecessary PHP closing tag'; }
         }
     }
-    runCheck(escapeshellarg($root.'/tests/run_tests.php'));
-    runCheck(escapeshellarg($root.'/tests/redirect_targets.php'));
-    runCheck(escapeshellarg($root.'/tests/acp_lists.php'));
-    runCheck(escapeshellarg($root.'/tests/acp_import.php'));
-    runCheck(escapeshellarg($root.'/tests/acp_redirect_inspector.php'));
-    runCheck(escapeshellarg($root.'/tests/seo_overrides.php'));
-    $cases = array();
-    foreach(array('redirect_save', 'redirect_delete', 'redirects_import', 'notfound_clear', 'notfound_clear_all') as $action)
+    if($errors)
     {
-        foreach(array('get', 'head', 'post', 'csrf') as $method)
+        fwrite(STDERR, implode(PHP_EOL, $errors).PHP_EOL);
+        exit(1);
+    }
+    echo 'Source encoding: '.count($files).' files passed (UTF-8, no BOM/NUL or PHP boundary output)'.PHP_EOL;
+}
+if($mode !== 'encoding')
+{
+    $count = 0;
+    foreach($files as $relative => $path)
+    {
+        if(substr($relative, -4) !== '.php') { continue; }
+        // Keep the runtime's configured extensions; this also works with Linux
+        // distributions that package standard extensions as shared modules.
+        $command = escapeshellarg(PHP_BINARY).' -l '.escapeshellarg($path);
+        passthru($command, $code);
+        if($code !== 0)
         {
-            $cases[] = array($action, $method);
+            exit($code);
         }
+        ++$count;
     }
-    foreach(array('site_details_save', 'indexnow_rotate_key') as $action)
-    {
-        foreach(array('get', 'head', 'post', 'csrf', 'denied') as $method)
-        {
-            $cases[] = array($action, $method);
-        }
-    }
-    $cases[] = array('site_details_save', 'invalid');
-    $cases[] = array('site_details_save', 'sql');
-    foreach(array('warnings', 'report', 'report_head', 'report_expired') as $mode)
-    {
-        $cases[] = array('redirects_import', $mode);
-    }
-    foreach(array('get', 'head', 'post', 'denied', 'invalid') as $mode)
-    {
-        $cases[] = array('redirect_inspect', $mode);
-    }
-    foreach($cases as $case)
-    {
-        runCheck(escapeshellarg($root.'/tests/acp_redirect_csrf.php').' '.escapeshellarg($case[0]).' '.escapeshellarg($case[1]));
-    }
-    echo 'ACP request matrix: '.count($cases).' cases passed'.PHP_EOL;
+    echo 'PHP lint: '.$count.' public-source files passed'.PHP_EOL;
 }

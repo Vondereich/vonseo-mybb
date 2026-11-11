@@ -27,6 +27,8 @@ require_once MYBB_ROOT.'inc/plugins/vonseo/AdminImport.php';
 $page->add_breadcrumb_item('VonSEO', 'index.php?module=config-vonseo');
 
 $action = $mybb->get_input('action');
+$siteDetailsDraft = array();
+$siteDetailsErrors = array();
 $redirects = new VonSEO_Redirects();
 $pluginInfo = function_exists('vonseo_info') ? vonseo_info() : array();
 $pluginVersion = !empty($pluginInfo['version']) ? $pluginInfo['version'] : 'Unknown';
@@ -65,8 +67,8 @@ $vonseoAdminCss = <<<'CSS'
 .vs-inline-form button{margin:0!important}
 .vs-page a.button,.vs-page button.button{display:inline-block;margin:0;padding:6px 10px;border:1px solid #b7bfca;border-radius:3px;background:#f6f7f9;color:#34445e;font-family:inherit;font-size:12px;font-weight:600;line-height:1.35;text-decoration:none;white-space:nowrap;cursor:pointer}
 .vs-page a.button:hover,.vs-page a.button:focus,.vs-page button.button:hover,.vs-page button.button:focus{background:#e9eef5;border-color:#8b9bb0;color:#273d5b;text-decoration:none}
-.vs-page a.vs-primary.button,.vs-page input.submit_button{background:#415f96;border-color:#334f82;color:#fff;text-shadow:none}
-.vs-page a.vs-primary.button:hover,.vs-page a.vs-primary.button:focus,.vs-page input.submit_button:hover{background:#334f82;border-color:#29436f;color:#fff}
+.vs-page .vs-primary.button,.vs-page input.submit_button{background:#415f96;border-color:#334f82;color:#fff;text-shadow:none}
+.vs-page .vs-primary.button:hover,.vs-page .vs-primary.button:focus,.vs-page input.submit_button:hover{background:#334f82;border-color:#29436f;color:#fff}
 .vs-page input.submit_button{padding:6px 11px;border-radius:3px;font-size:12px}
 .vs-page .form_button_wrapper a.button{margin-left:6px}
 .vs-page a.vs-danger.button{background:#fff5f5;border-color:#d8a1a1;color:#963b3b}
@@ -116,6 +118,7 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-site-details table{width:100%;min-width:0;table-layout:fixed}
 .vs-table-site-details td{overflow-wrap:anywhere}
 .vs-table-site-details input[type=text],.vs-table-site-details textarea{box-sizing:border-box;max-width:100%;min-height:36px}
+.vs-table-site-details [aria-invalid=true]{border-color:#a13f3f;box-shadow:0 0 0 1px #a13f3f}
 .vs-code{display:inline-block;max-width:520px;overflow-wrap:anywhere;color:#2b405e;font-family:Consolas,"Liberation Mono",monospace;font-size:11px;line-height:1.5}
 .vs-subtle{color:#7a8493;font-size:11px;line-height:1.45}
 .vs-row-actions{display:flex;justify-content:center;gap:10px;white-space:nowrap}
@@ -149,6 +152,9 @@ $vonseoAdminCss = <<<'CSS'
 .vs-button-link:hover{border-color:#9facc0;background:#f5f7fa;color:#273b59;text-decoration:none}
 @media(max-width:900px){.vs-summary,.vs-summary.vs-three{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1100px){
+.nav_tabs>ul{display:flex;flex-wrap:wrap;height:auto}
+.nav_tabs>ul>li{float:none}
+.nav_tabs .tab_description{clear:none}
 .vs-page-header{align-items:stretch;flex-direction:column;gap:12px}
 .vs-actions{justify-content:flex-start}
 .vs-table-wrap{overflow-x:visible}
@@ -185,6 +191,7 @@ $vonseoAdminCss = <<<'CSS'
 /* Only VonSEO pages load these overrides. Keep the native menu accessible
    below the content instead of consuming 200px of a phone-sized viewport. */
 @media(max-width:680px){#page{display:flex;flex-direction:column}#content{margin-left:0;padding:10px;min-width:0}#left_menu{float:none;width:100%;order:1}#left_menu ul.menu{display:flex;flex-wrap:wrap;gap:4px 12px}#left_menu ul.menu li{flex:1 1 140px}}
+@media(max-width:680px){.vs-seo-pane input[type=text],.vs-seo-pane textarea,.vs-seo-pane select{min-height:44px}.vs-seo-pane button{max-width:100%}}
 @media(max-width:680px){.vs-table-site-details table,.vs-table-site-details tbody,.vs-table-site-details tbody tr{display:block;width:100%;box-sizing:border-box}.vs-table-site-details thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.vs-table-site-details tbody td{display:block;width:auto!important;box-sizing:border-box;padding:8px 10px}.vs-table-site-details input[type=text],.vs-table-site-details textarea{min-height:44px}.vs-table-site-details .title{overflow-wrap:anywhere}}
 @media(max-width:420px){.vs-summary,.vs-summary.vs-three{grid-template-columns:1fr}.vs-setup-head{align-items:flex-start;flex-direction:column}.vs-table-cards tbody td{grid-template-columns:minmax(85px,34%) minmax(0,1fr)}}
 </style>
@@ -282,46 +289,50 @@ if($action === 'site_details_save')
         empty($homepageUrlParts['user']) && empty($homepageUrlParts['pass']) &&
         !preg_match('/[\x00-\x20\x7F]/', $homepageUrl) && strpos($homepageUrl, '\\') === false);
 
-    $error = '';
     if($siteName === '' || VonSEO_Utils::strlen($siteName) > 75)
     {
-        $error = 'Board Name is required and must not exceed 75 characters.';
+        $siteDetailsErrors['site_name'] = 'Board Name is required and must not exceed 75 characters.';
     }
-    elseif(!$siteUrlValid)
+    if(!$siteUrlValid)
     {
-        $error = 'Board URL must be an absolute HTTP or HTTPS URL without credentials, a query string or fragment.';
+        $siteDetailsErrors['site_url'] = 'Board URL must be an absolute HTTP or HTTPS URL without credentials, a query string or fragment.';
     }
-    elseif(VonSEO_Utils::strlen($homepageName) > 120)
+    if(VonSEO_Utils::strlen($homepageName) > 120)
     {
-        $error = 'Homepage Name must not exceed 120 characters.';
+        $siteDetailsErrors['homepage_name'] = 'Homepage Name must not exceed 120 characters.';
     }
-    elseif(!$homepageUrlValid)
+    if(!$homepageUrlValid)
     {
-        $error = 'Homepage URL must be blank or an absolute HTTP or HTTPS URL without credentials.';
+        $siteDetailsErrors['homepage_url'] = 'Homepage URL must be blank or an absolute HTTP or HTTPS URL without credentials.';
     }
-    elseif(VonSEO_Utils::strlen($siteDescription) > 320)
+    if(VonSEO_Utils::strlen($siteDescription) > 320)
     {
-        $error = 'SEO Description must not exceed 320 characters.';
+        $siteDetailsErrors['site_description'] = 'SEO Description must not exceed 320 characters.';
     }
 
-    if($error !== '')
+    if($siteDetailsErrors)
     {
-        flash_message($error, 'error');
+        // Redisplay this request only. Invalid drafts never replace settings or
+        // enter session/cache storage, and every rendered value is escaped below.
+        $siteDetailsDraft = array('site_name' => $siteName, 'site_url' => $siteUrl,
+            'homepage_name' => $homepageName, 'homepage_url' => $homepageUrl,
+            'site_description' => $siteDescription);
+    }
+    else
+    {
+        $db->update_query('settings', array('value' => $db->escape_string($siteName)), "name='bbname'");
+        $db->update_query('settings', array('value' => $db->escape_string($siteUrl)), "name='bburl'");
+        $db->update_query('settings', array('value' => $db->escape_string($homepageName)), "name='homename'");
+        $db->update_query('settings', array('value' => $db->escape_string($homepageUrl)), "name='homeurl'");
+        // Keep the SEO description in MyBB's settings cache without duplicating it
+        // on the Advanced Settings screen. Site Details is its only editor.
+        $db->update_query('settings', array('value' => $db->escape_string($siteDescription), 'gid' => 0), "name='vonseo_site_description'");
+        $db->delete_query('settings', "name='vonseo_home_title'");
+        rebuild_settings();
+        log_admin_action('vonseo_site_details_save');
+        flash_message('Site Details were saved to the original MyBB settings and VonSEO SEO Description. No duplicate site-identity settings were created.', 'success');
         admin_redirect('index.php?module=config-vonseo');
     }
-
-    $db->update_query('settings', array('value' => $db->escape_string($siteName)), "name='bbname'");
-    $db->update_query('settings', array('value' => $db->escape_string($siteUrl)), "name='bburl'");
-    $db->update_query('settings', array('value' => $db->escape_string($homepageName)), "name='homename'");
-    $db->update_query('settings', array('value' => $db->escape_string($homepageUrl)), "name='homeurl'");
-    // Keep the SEO description in MyBB's settings cache without duplicating it
-    // on the Advanced Settings screen. Site Details is its only editor.
-    $db->update_query('settings', array('value' => $db->escape_string($siteDescription), 'gid' => 0), "name='vonseo_site_description'");
-    $db->delete_query('settings', "name='vonseo_home_title'");
-    rebuild_settings();
-    log_admin_action('vonseo_site_details_save');
-    flash_message('Site Details were saved to the original MyBB settings and VonSEO SEO Description. No duplicate site-identity settings were created.', 'success');
-    admin_redirect('index.php?module=config-vonseo');
 }
 
 if($action === 'indexnow_rotate_key')
@@ -1037,6 +1048,15 @@ $siteDetailRows = array(
     array('Homepage URL', 'homepage_url', isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '', 'Parent site / Organization publisher URL. It may differ from the forum Board URL; no automatic synchronization is performed.'),
     array('SEO Description', 'site_description', isset($mybb->settings['vonseo_site_description']) ? trim((string)$mybb->settings['vonseo_site_description']) : '', 'VonSEO homepage description and fallback summary.')
 );
+if($siteDetailsErrors)
+{
+    echo '<div class="vs-notice is-warning" id="vs-site-details-validation" role="alert"><strong>Site Details were not saved.</strong> Correct the highlighted fields; your draft remains below.<ul>';
+    foreach($siteDetailsErrors as $fieldName => $fieldError)
+    {
+        echo '<li><a href="#vonseo_'.htmlspecialchars_uni($fieldName).'">'.htmlspecialchars_uni($fieldError).'</a></li>';
+    }
+    echo '</ul></div>';
+}
 if($canManageSiteSettings)
 {
     echo '<form action="index.php?module=config-vonseo&amp;action=site_details_save" method="post">';
@@ -1044,6 +1064,12 @@ if($canManageSiteSettings)
 }
 foreach($siteDetailRows as $siteDetailRow)
 {
+    if($canManageSiteSettings && array_key_exists($siteDetailRow[1], $siteDetailsDraft))
+    {
+        $siteDetailRow[2] = $siteDetailsDraft[$siteDetailRow[1]];
+    }
+    $fieldErrorAttributes = isset($siteDetailsErrors[$siteDetailRow[1]])
+        ? ' aria-invalid="true" aria-describedby="vs-site-details-validation"' : '';
     $siteDetails->construct_cell('<label for="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'"><strong>'.htmlspecialchars_uni($siteDetailRow[0]).'</strong></label><br /><span class="vs-muted">'.htmlspecialchars_uni($siteDetailRow[3]).'</span>');
     if(!$canManageSiteSettings)
     {
@@ -1051,11 +1077,12 @@ foreach($siteDetailRows as $siteDetailRow)
     }
     elseif($siteDetailRow[1] === 'site_description')
     {
-        $field = '<textarea class="text_input" id="vonseo_site_description" name="site_description" rows="3" style="width:98%">'.htmlspecialchars_uni($siteDetailRow[2]).'</textarea>';
+        $field = '<textarea class="text_input" id="vonseo_site_description" name="site_description" rows="3" maxlength="320"'.$fieldErrorAttributes.' style="width:98%">'.htmlspecialchars_uni($siteDetailRow[2]).'</textarea>';
     }
     else
     {
-        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'" style="width:98%" />';
+        $fieldLimit = $siteDetailRow[1] === 'site_name' ? ' maxlength="75"' : ($siteDetailRow[1] === 'homepage_name' ? ' maxlength="120"' : '');
+        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.' style="width:98%" />';
     }
     $siteDetails->construct_cell($field);
     $siteDetails->construct_row();
@@ -1065,7 +1092,7 @@ $siteDetails->output('Site Details: shared directly with MyBB');
 echo '</div>';
 if($canManageSiteSettings)
 {
-    echo '<div class="form_button_wrapper"><button class="button" type="submit">Save Site Details</button></div></form>';
+    echo '<div class="form_button_wrapper"><button class="button vs-primary" type="submit">Save Site Details</button></div></form>';
 }
 else
 {
@@ -1090,10 +1117,6 @@ if($indexNowEnabled && $indexNowWorkerStatus !== 'ready' && $lastIndexNowError !
 {
     $attention[] = $lastIndexNowError.' Queued URLs remain stored.';
 }
-if($engineEnabled && !empty($mybb->settings['vonseo_robots_enabled']) && $boardPath !== '')
-{
-    $attention[] = 'This board is installed in '.$boardPath.'. Crawlers request robots.txt at the host root, so add a host-level /robots.txt file or rewrite; the forum-root rule alone creates '.$boardPath.'/robots.txt.';
-}
 if(!empty($attention))
 {
     echo '<div class="vs-notice is-warning"><strong>Needs attention</strong><ul>';
@@ -1102,6 +1125,13 @@ if(!empty($attention))
         echo '<li>'.htmlspecialchars_uni($item).'</li>';
     }
     echo '</ul></div>';
+}
+if($engineEnabled && !empty($mybb->settings['vonseo_robots_enabled']) && $boardPath !== '')
+{
+    echo '<div class="vs-notice"><strong>Host-root robots.txt: manual verification.</strong> '
+        .'This board is installed in <code>'.htmlspecialchars_uni($boardPath).'</code>. Crawlers use the host-root <code>/robots.txt</code>, not <code>'.htmlspecialchars_uni($boardPath).'/robots.txt</code>. '
+        .'This is a setup reminder, not a detected error: VonSEO has not requested that URL. If it already serves the correct rules and forum sitemap, keep your working configuration. '
+        .'Otherwise follow README.md, Case B, and preserve any parent site robots owner.</div>';
 }
 
 echo '<div class="vs-setup'.($keywordSettingEnabled && $serverHelp['apache'] && $keywordRuleCount < 6 ? ' is-warning' : '').'">';
@@ -1186,10 +1216,10 @@ $health->construct_cell('<span class="vs-status '.($htaccessState ? 'is-on' : 'i
 $health->construct_cell(htmlspecialchars_uni($serverHelp['apache'] ? $htaccessNote : 'Server configuration is not readable from the ACP. Test a direct custom path after adding the optional fallback.'));
 $health->construct_row();
 $health->construct_cell('<strong>Host-root robots.txt</strong>');
-$health->construct_cell('<span class="vs-status '.($boardPath === '' ? 'is-on' : 'is-warn').'">'.($boardPath === '' ? 'Root board' : 'Host setup').'</span>', array('class' => 'align_center'));
+$health->construct_cell('<span class="vs-status is-neutral">Manual check</span>', array('class' => 'align_center'));
 $health->construct_cell($boardPath === ''
-    ? 'The optional MyBB-root rewrite can serve the crawler-standard /robots.txt path.'
-    : 'The dynamic endpoint remains available, but the web-document root must map /robots.txt to it or provide a static file.');
+    ? 'Not HTTP-tested. The optional MyBB-root rewrite can serve /robots.txt; verify its actual response and content.'
+    : 'Not HTTP-tested. Configure /robots.txt at the web-document root or merge with its existing owner, then verify the actual response. A working setup does not need replacing.');
 $health->construct_row();
 $health->construct_cell('<strong>Database schema</strong>');
 $health->construct_cell('<span class="vs-status '.($schemaVersion === VonSEO_State::SCHEMA_VERSION ? 'is-on' : 'is-warn').'">'.$schemaVersion.' / '.VonSEO_State::SCHEMA_VERSION.'</span>', array('class' => 'align_center'));

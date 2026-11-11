@@ -81,6 +81,7 @@ class VonSEO_AdminSEO
         $page->output_header('VonSEO SEO Controls');
         echo $vonseoAdminCss;
         vonseo_admin_tabs('seo');
+        echo '<div class="vs-page">';
         echo '<style>.vs-seo-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}.vs-seo-pane{padding:18px;border:1px solid #d9dee7;border-radius:8px;background:#fff;min-width:0}.vs-seo-pane input[type=text],.vs-seo-pane textarea,.vs-seo-pane select{box-sizing:border-box;width:100%;margin:6px 0 16px;padding:9px}.vs-seo-pane pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f3f5;padding:12px}.vs-seo-preview{border:1px solid #d9dee7;border-radius:6px;margin:12px 0;padding:14px;overflow-wrap:anywhere}.vs-seo-search-title{color:#234766;font-size:19px}.vs-seo-mobile{max-width:360px}.vs-seo-social img{display:block;max-width:100%;max-height:240px;object-fit:contain;margin-bottom:10px}.vs-seo-details{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;overflow-wrap:anywhere}.vs-seo-details dt{font-weight:600}.vs-seo-details dd{margin:0}@media(max-width:850px){.vs-seo-layout{grid-template-columns:1fr}}@media(max-width:420px){.vs-seo-details{grid-template-columns:1fr}}</style>';
         echo '<h2>SEO Controls and Inspector</h2><p>Configuration snapshot, not a crawl or indexing report. Supported entities: ordinary forums and public approved threads.</p>';
         echo '<style>.vs-seo-launcher{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin-bottom:18px}.vs-seo-launcher label{display:flex;flex-direction:column;gap:5px;min-width:0}.vs-seo-launcher input{width:110px;max-width:100%;box-sizing:border-box}.vs-seo-launcher input,.vs-seo-launcher select,.vs-seo-launcher button,.vs-seo-pane button{min-height:44px}.vs-seo-pane button{white-space:normal;margin-bottom:8px}</style>';
@@ -90,7 +91,7 @@ class VonSEO_AdminSEO
             .'<label>Page <input type="text" name="seo_page" inputmode="numeric" value="'.$number.'" size="6" /></label> <button class="button" type="submit">Inspect</button></form>';
         if($errors)
         {
-            echo '<div class="vs-notice"><strong>Nothing was saved.</strong><ul>';
+            echo '<div class="vs-notice is-warning" role="alert"><strong>Nothing was saved.</strong><ul>';
             foreach($errors as $error)
             {
                 echo '<li>'.self::h($error).'</li>';
@@ -100,6 +101,7 @@ class VonSEO_AdminSEO
         if(!$eligible)
         {
             echo '<div class="vs-notice">'.($valid ? 'Missing, unsupported or guest-inaccessible entity. No private title, description, image or schema is previewed.' : 'Select a valid entity and positive numeric ID to begin.').'</div>';
+            echo '</div>';
             $page->output_footer();
             return;
         }
@@ -128,7 +130,7 @@ class VonSEO_AdminSEO
         echo '<button class="button" type="submit" formaction="index.php?module=config-vonseo&amp;action=seo_preview">Preview without saving</button> ';
         if($ready)
         {
-            echo '<button class="button" type="submit">Save overrides</button>';
+            echo '<button class="button vs-primary" type="submit">Save overrides</button>';
         }
         echo '</form>';
         if($ready)
@@ -143,7 +145,7 @@ class VonSEO_AdminSEO
             echo '<p>The invalid draft was not applied. This snapshot uses the saved configuration.</p>';
         }
         self::preview($context, $action === 'seo_preview' && !$errors);
-        echo '</section></div>';
+        echo '</section></div></div>';
         $page->output_footer();
     }
 

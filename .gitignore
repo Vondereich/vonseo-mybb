@@ -1,5 +1,6 @@
 /vonseo-mybb-*.zip
-/tests/local-backup-*/
 /.local-backups/
+/tests/
+/docs/
+/extras/ide_stubs.php
 *.sql
-/docs/SECURITY_FIX_REPORT.md

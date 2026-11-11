@@ -2,14 +2,14 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Stable version: **1.1.0**. This release adds ACP-only forum/thread SEO controls and illustrative previews with plugin-owned schema 6 storage. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Stable version: **1.1.2**. This maintenance release improves ACP validation, mobile controls and deployment guidance while retaining the forum/thread SEO controls and illustrative previews introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
 ## Requirements
 
 - MyBB 1.8.x
-- PHP 7.1 or newer for plugin syntax. Plugin lint and self-contained tests passed on PHP 7.1–8.5 in Ubuntu CI; the installed local board was exercised on PHP 8.4. The CI syntax/test matrix is not a full installed MyBB HTTP test on every PHP version. MyBB's own PHP minimum is broader than this plugin's.
+- PHP 7.1 or newer for plugin syntax. The 1.1.0 Ubuntu CI run covered plugin lint/self-contained tests on PHP 7.1–8.5. Maintenance build 1.1.2 is checked locally on PHP 8.3–8.5; it has not rerun the full Linux/older-PHP matrix. The installed local board is exercised on PHP 8.4. These checks are not full installed MyBB HTTP tests on every runtime. MyBB's own PHP minimum is broader than this plugin's.
 - MySQL or MariaDB. VonSEO uses MySQL-family upserts plus advisory locking for bounded 404 logging and its durable IndexNow queue.
 - No MyBB core edits
 - Core metadata and native crawler endpoints are web-server independent. Optional Apache-style and Nginx rewrite examples are supplied in `extras/`; merge the matching example into your existing server configuration and test it on staging.
@@ -77,8 +77,8 @@ Uninstalling through MyBB removes VonSEO's settings, SEO override/redirect/404/I
 
 The default installation enables the SEO engine, sitemap, robots output, redirect engine, real 404 responses, privacy-aware 404 monitoring and IndexNow. Keyword URLs and member-profile indexing remain off by default.
 
-1. Open Admin CP → Configuration → **VonSEO**. Confirm the database schema is current and review **Needs attention** messages. The subfolder robots reminder can remain after successful setup; verify the actual host-root URL as described below.
-2. Complete **Site Details**. Board Name, Board URL, Homepage Name and Homepage URL update MyBB's original settings; SEO Description is the only VonSEO-specific identity field.
+1. Open Admin CP → Configuration → **VonSEO**. Confirm the database schema is current and review **Needs attention** messages. The separate host-root robots reminder is informational, not a detected error; verify the actual host-root URL as described below.
+2. Complete **Site Details**. Board Name, Board URL, Homepage Name and Homepage URL update MyBB's original settings; SEO Description is the only VonSEO-specific identity field. If validation fails, all errors appear together and your draft stays in the form; nothing is saved until the whole form is valid.
 3. Open one public thread while logged out. View the raw page source and confirm there is one canonical link, one description, social metadata and one VonSEO JSON-LD block.
 4. Open `misc.php?action=vonseo_sitemap` and `misc.php?action=vonseo_robots`. The sitemap should contain only guest-visible content.
 5. Keep keyword URLs off unless you want them. Basic metadata, schema, sitemap, redirects, 404 handling and IndexNow do not require keyword URLs.
@@ -109,6 +109,15 @@ Noindex entities are omitted from their forum/thread sitemap entries and eligibl
 MyBB's Guest access restrictions take precedence over SEO settings. IndexNow pauses when the board requires login, Guest cannot view the board, or the board is closed without Guest permission to view it. Current and historical removal queue entries are retained without spending retries until Guest access returns. Calendar/event sitemap entries additionally require the calendar feature, global Guest calendar access and the calendar-specific permission; a specific grant cannot bypass a global denial. These checks do not reverse URL disclosures that happened before the patch.
 
 Upgrade from 1.0.8 or a 1.1.0 beta: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. SEO noindex is not privacy protection; use MyBB permissions to restrict access. Uninstall permanently removes the override table.
+
+### Updating an existing 1.1.x installation to 1.1.2
+
+1. Back up the forum files/database and any customized plugin files.
+2. Replace the package's `admin/` and `inc/` files in the MyBB installation directory. If ACP is renamed, use its actual directory. Do not upload `extras/` or replace an existing `.htaccess` with an example file.
+3. No new migration or uninstall/reinstall is required from a working schema 6 installation. Keep the plugin active and its existing settings, queue, overrides and server rules. If Overview reports an incomplete schema, follow its deactivate/reactivate instructions without uninstalling.
+4. Reload ACP and confirm version 1.1.2. Check Site Details, SEO Controls and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
+
+This update does not change canonical URLs, keyword settings, sitemap policy or IndexNow delivery. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
 
 ## Apache setup: using the `extras` files
 
@@ -242,7 +251,7 @@ Open the following URLs without logging in; use a browser's Network panel or you
 
 Raw XML and plain text are intentional; these are not normal forum pages. Also open the homepage, a known public thread/forum, calendar, Admin CP and an existing image or JavaScript asset. They must retain their previous behavior. Keep keyword URLs off until the direct-route checks in Block B pass.
 
-The ACP subfolder reminder is static guidance, not an HTTP probe of `/robots.txt`. It may remain visible after a successful host-root setup. Verify the actual URL and content; do not keep replacing a working configuration to make that reminder disappear.
+The ACP subfolder reminder is informational guidance outside **Needs attention**, not an HTTP probe of `/robots.txt`. Root and subfolder diagnostics both say **Manual check** because neither response has been verified by VonSEO. The reminder may remain visible after successful host-root setup. Verify the actual URL and content; do not keep replacing a working configuration to make it disappear.
 
 If you get HTTP 500, restore the affected `.htaccess` backup and check the Apache error log or ask your host. If a clean alias returns 404 but the native `misc.php?action=...` endpoint works, check the file location, rewrite placement, `mod_rewrite` and the host's override permissions.
 
@@ -259,7 +268,7 @@ Nginx does not read `.htaccess`. These files are snippets for an existing `serve
 2. Keep the site's existing PHP/FastCGI handler, TLS configuration, access restrictions and native MyBB friendly-URL rules. The examples assume the Nginx `root` points to the web-document root; they are not designed for an `alias` deployment.
 3. Copy the clean sitemap/robots locations and all six keyword rewrites into the board's `server {}` block. The keyword rules must run before any existing catch-all rewrite. Their final `?` is intentional: it discards incoming query parameters that could conflict with the route's IDs or action.
 4. If you want arbitrary missing paths to reach Redirect Manager and the 404 handler, merge the supplied `try_files` fallback into the existing `location /` or `location /forum/`. Do not define the same location twice. Preserve any application's existing front-controller routing, and keep native MyBB routes ahead of the fallback.
-5. Run `nginx -t`. Only after it succeeds, reload Nginx using your host's service controls or `nginx -s reload`. Managed hosting may require the host to apply these changes.
+5. Run `nginx -t`. Only after it succeeds, reload Nginx using your host's service controls or `nginx -s reload`. Managed hosting may require the host to apply these changes. Nginx reads server configuration, not `.htaccess`; see the [official configuration/reload guide](https://nginx.org/en/docs/beginners_guide.html).
 6. Test native PHP pages and assets, the clean sitemap/robots aliases, thread/post/action/page/forum routes and an unknown path as a guest. Follow the same keyword-off, keyword-on and rollback checks used for Apache above.
 
 The `/forum/` example sends only paths inside that directory to MyBB. It does not take ownership of host-root `/robots.txt`. A separate commented example is provided for the site owner; if another application owns that file, merge the forum's crawler directives into the parent site's file instead.
@@ -450,7 +459,7 @@ Submit the sitemap URL that is actually reachable on the public site. With no cl
 - one-click “Create Redirect” from a recorded 404;
 - direct links to crawler endpoints;
 - basic `.htaccess` route detection;
-- database migration and IndexNow queue diagnostics, plus **Needs attention** messages for reported issues and a static host-root robots reminder on subfolder boards;
+- database migration and IndexNow queue diagnostics, plus **Needs attention** messages for reported issues and a separate informational host-root robots reminder on subfolder boards;
 - protected one-click actions to use MyBB's board identity directly and to replace the IndexNow verification key.
 
 MyBB administrator permissions are split by responsibility. The base **VonSEO** permission opens health, redirects and the 404 monitor. Changing Site Details or rotating the IndexNow key additionally requires **Can change VonSEO Site Details and rotate the IndexNow key?** or MyBB's core settings permission. After upgrading, grant the additional permission only to administrators who should be able to change the board identity and crawler key; super administrators continue to have access automatically.
@@ -547,14 +556,12 @@ Correct MyBB's **Board URL** in Site Details. VonSEO deliberately trusts that co
 
 ## Scope and limitations
 
-Version 1.1.0 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
+Version 1.1.2 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
 
-## Contributor checks
+## Source checks and packaging
 
-The source repository includes tests and build tools; the upload ZIP deliberately excludes them. With PHP installed, run `php scripts/check.php` from the repository root for syntax checks, the main regression suite, redirect target/save/import policy checks, ACP list/import-report/redirect-inspector tests and the ACP request matrix. These tests use disposable mocks and do not need an installed forum.
+From a GitHub source checkout, run `php scripts/check.php` to check the public files for valid UTF-8, byte order marks, literal NUL bytes, unintended output at PHP file boundaries and PHP syntax errors. Use `encoding` or `lint` as an optional argument to run only that part. The checker does not load MyBB, access a database or send network requests.
 
-`php tests/acp_lists_mysql.php` additionally checks list queries on a real MySQL/MariaDB database using connection-local temporary tables. Supply `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` and `DB_DATABASE` in the environment. It does not create persistent forum tables. `tests/release_correctness_mysql.php` exercises strict storage boundaries and IndexNow history interleavings. CI uses pinned MyBB 1.8.41 core code and disposable native tables for install/schema-upgrade/deactivate/reactivate/uninstall checks on MySQL 8.0 and MariaDB 10.11. These are database-layer checks, not full separate HTTP forum installations or an exact historical-release clone.
+GitHub Actions runs these source checks on the configured PHP matrix and separately builds the upload ZIP. These jobs do not run the full regression suite or prove installed-forum behavior; verify your own staging deployment using the checklist above.
 
-The source includes two explicitly local playground helpers: `tests/local_permissions_smoke.php` requires `--allow-temporary-data` and temporarily creates staff/content only on the selected `C:/laragon/www/forum` fixture; do not run it on production. `tests/local_render_benchmark.php` compares source roots using warmed native MyBB caches and reports target/query counts. Its repeated-anchor timing excludes HTTP/bootstrap and concurrent load. Neither helper is included in the public upload ZIP or run automatically against an installed forum by CI.
-
-On Windows with Nginx and PHP-CGI installed, `tests/nginx_routes.ps1 -Nginx <nginx.exe> -PhpCgi <php-cgi.exe>` checks both supplied snippets against isolated route fixtures. It uses loopback ports 19081-19083 by default and stops only the helper processes it created. This validates server routing, not a complete installed MyBB deployment.
+On Windows with PowerShell, run `./scripts/create_release.ps1 -Version 1.1.2` to build a byte-verified upload ZIP from the explicit release manifest. Old release ZIPs in the project root are removed after verification succeeds. The upload ZIP excludes build tools, internal documents, test fixtures and local backups.
