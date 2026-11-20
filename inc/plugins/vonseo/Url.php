@@ -352,6 +352,8 @@ class VonSEO_Url
      */
     public function keywordSlug($title, $fallback = 'item')
     {
+        // Slugs deliberately keep plainText(): it drops "[TAG]" and URLs, and
+        // changing it would move every published keyword URL. Titles use labelText().
         $title = VonSEO_Utils::plainText($title);
         $title = function_exists('mb_strtolower') ? mb_strtolower($title, 'UTF-8') : strtolower($title);
         $slug = preg_replace('/[^\p{L}\p{N}]+/u', '-', $title);

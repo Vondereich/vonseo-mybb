@@ -33,7 +33,7 @@ class VonSEO_Schema
                 '@type' => 'WebSite',
                 '@id' => $context->canonical.'#website',
                 'url' => $context->canonical,
-                'name' => isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : $context->title
+                'name' => isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::labelText($mybb->settings['bbname'])) : $context->title
             );
 
             if($context->description !== '')
@@ -86,7 +86,7 @@ class VonSEO_Schema
             $firstPostText = isset($context->data['first_post_text'])
                 ? trim((string)$context->data['first_post_text']) : '';
             $authorName = isset($thread['username'])
-                ? VonSEO_Utils::plainText($thread['username']) : '';
+                ? VonSEO_Utils::labelText($thread['username']) : '';
 
             // On later pages, Google permits a reference to the original post
             // at its first-page URL. On page one, do not emit an incomplete
@@ -98,7 +98,7 @@ class VonSEO_Schema
                     '@type' => 'DiscussionForumPosting',
                     '@id' => $firstPageUrl.'#posting',
                     'url' => $firstPageUrl,
-                    'headline' => isset($thread['subject']) ? VonSEO_Utils::plainText($thread['subject']) : $context->title,
+                    'headline' => isset($thread['subject']) ? VonSEO_Utils::labelText($thread['subject']) : $context->title,
                     'datePublished' => VonSEO_Utils::isoDate($thread['dateline']),
                     'author' => array(
                         '@type' => 'Person',
@@ -116,7 +116,7 @@ class VonSEO_Schema
 
                 if(!empty($forum['name']))
                 {
-                    $posting['articleSection'] = VonSEO_Utils::plainText($forum['name']);
+                    $posting['articleSection'] = VonSEO_Utils::labelText($forum['name']);
                 }
 
                 if($context->page === 1 && !empty($context->data['first_post_edittime']))
@@ -174,9 +174,9 @@ class VonSEO_Schema
             $text = isset($context->data['announcement_text'])
                 ? trim((string)$context->data['announcement_text']) : '';
             $headline = isset($announcement['subject'])
-                ? VonSEO_Utils::plainText($announcement['subject']) : '';
+                ? VonSEO_Utils::labelText($announcement['subject']) : '';
             $authorName = isset($announcement['username'])
-                ? VonSEO_Utils::plainText($announcement['username']) : '';
+                ? VonSEO_Utils::labelText($announcement['username']) : '';
 
             if($text !== '' && $headline !== '' && !empty($announcement['startdate']))
             {
@@ -233,7 +233,7 @@ class VonSEO_Schema
         {
             $eventData = isset($context->data['event']) ? $context->data['event'] : array();
             $calendarData = isset($context->data['calendar']) ? $context->data['calendar'] : array();
-            $name = isset($eventData['name']) ? VonSEO_Utils::plainText($eventData['name']) : '';
+            $name = isset($eventData['name']) ? VonSEO_Utils::labelText($eventData['name']) : '';
             $startDate = !empty($eventData['starttime']) ? VonSEO_Utils::isoDate($eventData['starttime']) : '';
 
             if($name !== '' && $startDate !== '')
@@ -251,7 +251,7 @@ class VonSEO_Schema
                     $event['endDate'] = VonSEO_Utils::isoDate($eventData['endtime']);
                 }
                 $authorName = isset($eventData['username'])
-                    ? VonSEO_Utils::plainText($eventData['username']) : '';
+                    ? VonSEO_Utils::labelText($eventData['username']) : '';
                 if($authorName !== '')
                 {
                     $event['organizer'] = array('@type' => 'Person', 'name' => $authorName);
@@ -270,7 +270,7 @@ class VonSEO_Schema
             $profile = $context->data;
             $person = array(
                 '@type' => 'Person',
-                'name' => isset($profile['username']) ? VonSEO_Utils::plainText($profile['username']) : $context->title,
+                'name' => isset($profile['username']) ? VonSEO_Utils::labelText($profile['username']) : $context->title,
                 'url' => $context->canonical
             );
 
@@ -313,7 +313,7 @@ class VonSEO_Schema
 
         $items = $this->forumTrail($forum);
         $items[] = array(
-            'name' => isset($thread['subject']) ? VonSEO_Utils::plainText($thread['subject']) : $context->title,
+            'name' => isset($thread['subject']) ? VonSEO_Utils::labelText($thread['subject']) : $context->title,
             'url' => $context->canonical
         );
 
@@ -333,7 +333,7 @@ class VonSEO_Schema
         );
         $items[] = array(
             'name' => isset($announcement['subject'])
-                ? VonSEO_Utils::plainText($announcement['subject']) : $context->title,
+                ? VonSEO_Utils::labelText($announcement['subject']) : $context->title,
             'url' => $context->canonical
         );
 
@@ -347,7 +347,7 @@ class VonSEO_Schema
     protected function breadcrumbForCalendar(VonSEO_Context $context)
     {
         $calendar = isset($context->data['calendar']) ? $context->data['calendar'] : array();
-        $name = isset($calendar['name']) ? VonSEO_Utils::plainText($calendar['name']) : $context->title;
+        $name = isset($calendar['name']) ? VonSEO_Utils::labelText($calendar['name']) : $context->title;
         return $this->breadcrumbSchema(array(
             array('name' => $this->boardName(), 'url' => $this->url->home()),
             array('name' => $name, 'url' => $context->canonical)
@@ -362,8 +362,8 @@ class VonSEO_Schema
     protected function breadcrumbForEvent(VonSEO_Context $context, array $calendar)
     {
         $event = isset($context->data['event']) ? $context->data['event'] : array();
-        $calendarName = isset($calendar['name']) ? VonSEO_Utils::plainText($calendar['name']) : '';
-        $eventName = isset($event['name']) ? VonSEO_Utils::plainText($event['name']) : $context->title;
+        $calendarName = isset($calendar['name']) ? VonSEO_Utils::labelText($calendar['name']) : '';
+        $eventName = isset($event['name']) ? VonSEO_Utils::labelText($event['name']) : $context->title;
         $items = array(array('name' => $this->boardName(), 'url' => $this->url->home()));
         if(!empty($calendar['cid']) && $calendarName !== '')
         {
@@ -439,7 +439,7 @@ class VonSEO_Schema
             }
 
             $items[] = array(
-                'name' => VonSEO_Utils::plainText($node['name']),
+                'name' => VonSEO_Utils::labelText($node['name']),
                 'url' => $this->url->forum($fid, 0, isset($node['name']) ? $node['name'] : '')
             );
         }
@@ -486,7 +486,7 @@ class VonSEO_Schema
     protected function boardName()
     {
         global $mybb;
-        return isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : '';
+        return isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::labelText($mybb->settings['bbname'])) : '';
     }
 
     protected function organizationSchema()
@@ -494,7 +494,7 @@ class VonSEO_Schema
         global $mybb;
 
         $name = isset($mybb->settings['homename'])
-            ? trim(VonSEO_Utils::plainText($mybb->settings['homename']))
+            ? trim(VonSEO_Utils::labelText($mybb->settings['homename']))
             : '';
         $url = isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '';
         $parts = $url !== '' ? @parse_url($url) : false;

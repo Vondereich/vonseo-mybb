@@ -6,6 +6,9 @@ if(!defined('IN_MYBB'))
 
 class VonSEO_Sitemap
 {
+    /** MyBB threads.tid is an unsigned INT. */
+    const MAX_THREAD_ID = 4294967295;
+
     /**
      * @var VonSEO_Url
      */
@@ -83,19 +86,7 @@ class VonSEO_Sitemap
         $chunk = $this->chunkSize();
         $fids = $this->publicForumIds();
 
-        $timeNow = defined('TIME_NOW') ? TIME_NOW : time();
-        $threadCount = 0;
-        if(!empty($fids))
-        {
-            $where = "visible='1' AND dateline<='{$timeNow}' AND fid IN (".implode(',', $fids).") AND closed NOT LIKE 'moved|%'";
-            if(class_exists('VonSEO_Overrides'))
-            {
-                $where .= VonSEO_Overrides::threadSitemapPredicate();
-            }
-            $threadCount = $this->threadCount($fids, $where);
-        }
-
-        $pages = $threadCount > 0 ? (int)ceil($threadCount / $chunk) : 0;
+        $threadPages = !empty($fids) ? $this->threadPages($fids, $this->threadWhere($fids), $chunk) : array();
         $announcementCount = $this->announcementCount($this->announcementWhere($fids), $fids);
         $announcementPages = $announcementCount > 0 ? (int)ceil($announcementCount / $chunk) : 0;
         $calendarIds = $this->publicCalendarIds();
@@ -106,7 +97,7 @@ class VonSEO_Sitemap
         echo "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
         echo $this->sitemapIndexNode($this->url->misc('vonseo_sitemap', array('type' => 'forums')));
 
-        for($page = 1; $page <= $pages; $page++)
+        foreach($threadPages as $page)
         {
             echo $this->sitemapIndexNode($this->url->misc('vonseo_sitemap', array(
                 'type' => 'threads',
@@ -197,23 +188,34 @@ class VonSEO_Sitemap
 
         $chunk = $this->chunkSize();
         $fids = $this->publicForumIds();
-        $where = '';
-        $threadCount = 0;
 
-        if(!empty($fids))
+        // Page N covers the fixed thread-ID range ((N-1)*chunk, N*chunk]. A
+        // primary-key range reads at most one chunk of rows, unlike a deep
+        // OFFSET, and a page's content does not shift when older threads are
+        // hidden or deleted. Empty ranges are omitted from the index.
+        $rows = array();
+        $first = ($page - 1) * $chunk + 1;
+        if(!empty($fids) && $first <= self::MAX_THREAD_ID)
         {
-            $timeNow = defined('TIME_NOW') ? TIME_NOW : time();
-            $where = "visible='1' AND dateline<='{$timeNow}' AND fid IN (".implode(',', $fids).") AND closed NOT LIKE 'moved|%'";
-            if(class_exists('VonSEO_Overrides'))
+            $last = min(self::MAX_THREAD_ID, $page * $chunk);
+            $query = $db->simple_select(
+                'threads',
+                'tid,subject,lastpost,dateline',
+                $this->threadWhere($fids)." AND tid BETWEEN {$first} AND {$last}",
+                array(
+                    'order_by' => 'tid',
+                    'order_dir' => 'ASC',
+                    'limit' => $chunk
+                )
+            );
+            while($thread = $db->fetch_array($query))
             {
-                $where .= VonSEO_Overrides::threadSitemapPredicate();
+                $rows[] = $thread;
             }
-            $threadCount = $this->threadCount($fids, $where);
         }
 
-        $pages = $threadCount > 0 ? (int)ceil($threadCount / $chunk) : 0;
         $GLOBALS['vonseo_sitemap_status'] = 200;
-        if($page > $pages)
+        if(!$rows)
         {
             $GLOBALS['vonseo_sitemap_status'] = 404;
             if(!headers_sent())
@@ -228,26 +230,10 @@ class VonSEO_Sitemap
         echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
         echo "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
 
-        if($page <= $pages)
+        foreach($rows as $thread)
         {
-            $start = ($page - 1) * $chunk;
-            $query = $db->simple_select(
-                'threads',
-                'tid,subject,lastpost,dateline',
-                $where,
-                array(
-                    'order_by' => 'tid',
-                    'order_dir' => 'ASC',
-                    'limit_start' => $start,
-                    'limit' => $chunk
-                )
-            );
-
-            while($thread = $db->fetch_array($query))
-            {
-                $lastmod = !empty($thread['lastpost']) ? VonSEO_Utils::isoDate($thread['lastpost']) : VonSEO_Utils::isoDate($thread['dateline']);
-                echo $this->urlNode($this->url->thread((int)$thread['tid'], 0, isset($thread['subject']) ? $thread['subject'] : ''), $lastmod);
-            }
+            $lastmod = !empty($thread['lastpost']) ? VonSEO_Utils::isoDate($thread['lastpost']) : VonSEO_Utils::isoDate($thread['dateline']);
+            echo $this->urlNode($this->url->thread((int)$thread['tid'], 0, isset($thread['subject']) ? $thread['subject'] : ''), $lastmod);
         }
 
         echo "</urlset>\n";
@@ -470,34 +456,73 @@ class VonSEO_Sitemap
     }
 
     /**
+     * Shared public-thread eligibility for the index and every thread page.
+     *
+     * @param array $fids
+     * @return string
+     */
+    protected function threadWhere(array $fids)
+    {
+        $timeNow = defined('TIME_NOW') ? (int)TIME_NOW : time();
+        $where = "visible='1' AND dateline<='{$timeNow}' AND fid IN (".implode(',', array_map('intval', $fids)).") AND closed NOT LIKE 'moved|%'";
+        if(class_exists('VonSEO_Overrides'))
+        {
+            $where .= VonSEO_Overrides::threadSitemapPredicate();
+        }
+        return $where;
+    }
+
+    /**
+     * Non-empty thread-ID range pages, from one aggregated query cached for
+     * ten minutes. Child pages never read this list: they query their own
+     * primary-key range and return 404 when it is empty.
+     *
      * @param array $fids
      * @param string $where
-     * @return int
+     * @param int $chunk
+     * @return int[]
      */
-    protected function threadCount(array $fids, $where)
+    protected function threadPages(array $fids, $where, $chunk)
     {
         global $db, $cache;
 
+        $chunk = max(1, (int)$chunk);
         $now = defined('TIME_NOW') ? (int)TIME_NOW : time();
-        $key = 'vonseo_sitemap_count_'.substr(hash('sha256', implode(',', $fids)), 0, 16);
+        $key = 'vonseo_sitemap_pages_'.substr(hash('sha256', implode(',', $fids).'|'.$chunk), 0, 16);
         $revision = class_exists('VonSEO_Overrides') ? VonSEO_Overrides::revision() : '';
         if(is_object($cache) && method_exists($cache, 'read'))
         {
             $cached = $cache->read($key);
-            if(is_array($cached) && isset($cached['expires'], $cached['count']) && (int)$cached['expires'] >= $now &&
+            if(is_array($cached) && isset($cached['expires'], $cached['pages']) && is_array($cached['pages']) &&
+               (int)$cached['expires'] >= $now &&
                (isset($cached['revision']) ? (string)$cached['revision'] : '') === $revision)
             {
-                return max(0, (int)$cached['count']);
+                return array_values(array_filter(array_map('intval', $cached['pages']), function($page) {
+                    return $page > 0;
+                }));
             }
         }
 
-        $query = $db->simple_select('threads', 'COUNT(tid) AS total', $where);
-        $count = max(0, (int)$db->fetch_field($query, 'total'));
+        $query = $db->simple_select('threads', "FLOOR((tid-1)/{$chunk}) AS bucket", $where, array(
+            'group_by' => 'bucket',
+            'order_by' => 'bucket',
+            'order_dir' => 'ASC'
+        ));
+        $pages = array();
+        while($row = $db->fetch_array($query))
+        {
+            if(isset($row['bucket']) && is_numeric($row['bucket']) && (int)$row['bucket'] >= 0)
+            {
+                $pages[] = (int)$row['bucket'] + 1;
+            }
+        }
+        $pages = array_values(array_unique($pages));
+        sort($pages);
         if(is_object($cache) && method_exists($cache, 'update'))
         {
-            $cache->update($key, array('count' => $count, 'expires' => $now + 600, 'revision' => $revision));
+            $cache->update($key, array('pages' => $pages, 'expires' => $now + 600, 'revision' => $revision));
         }
-        return $count;
+        return $pages;
     }
 
     /**

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Reject new `<`, `>`, `"` and backtick characters in Site Details Board Name, Board URL, Homepage Name and Homepage URL. MyBB templates print these settings unescaped, so the narrower "Site Details" ACP permission could previously plant attribute or tag markup on public pages. An unchanged existing value set through MyBB's own settings is retained so other fields can still be saved.
+- Store Board and Homepage names exactly as typed. Site Details no longer runs them through the post-snippet filter, which stripped `[TAG]` text and URLs and decoded entities into live markup; the form also prefills the real stored values, so saving only the description no longer rewrites the names. Titles, `og:site_name` and schema names keep brackets and URLs.
+- Keep `[TAG]` prefixes and URLs in thread, announcement, forum, calendar and event titles, usernames and SEO title overrides. These labels previously went through the post-snippet filter, so `[SOLVED] Install guide` became `Install guide` in `<title>`, Open Graph/Twitter titles and schema. Descriptions keep the snippet filter, and keyword URL slugs are deliberately unchanged so published URLs do not move.
+- Page the thread sitemap by fixed thread-ID ranges instead of deep `OFFSET` queries. Page N lists public threads with IDs from (N-1)×chunk+1 to N×chunk, read through a bounded primary-key range, so a late page no longer scans every earlier row and page contents no longer shift when older threads are hidden or deleted. The index lists only non-empty ranges from one aggregate query cached for ten minutes; an empty or unlisted range returns 404. Page numbers can therefore skip values. Eligibility, URLs and the chunk-size setting are unchanged.
+- Add Site Details markup, bracket/URL preservation, legacy-value and prefill regressions, title/name label regressions and thread-range sitemap regressions.
+
 ## 1.1.2 - 2026-11-11
 
 - Keep invalid Site Details drafts on the current page instead of losing them through a redirect. Report all field errors together, link each error to its field and mark invalid controls accessibly. Invalid submissions do not change saved settings.

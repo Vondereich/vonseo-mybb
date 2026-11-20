@@ -245,7 +245,7 @@ Open the following URLs without logging in; use a browser's Network panel or you
 | Check | Root board | Board in `/forum/` | Expected result |
 | --- | --- | --- | --- |
 | Sitemap | `/sitemap.xml` | `/forum/sitemap.xml` | HTTP 200, valid XML sitemap index |
-| Thread sitemap | `/sitemap.xml?type=threads&page=1` | `/forum/sitemap.xml?type=threads&page=1` | HTTP 200, valid XML URL set when this chunk exists |
+| Thread sitemap | First `type=threads` URL listed in the sitemap index | Same, under `/forum/` | HTTP 200, valid XML URL set. Thread pages are fixed thread-ID ranges, so the index may skip numbers such as `page=1` when that range has no public thread; an unlisted page returns 404 |
 | Forum robots alias | `/robots.txt` | `/forum/robots.txt` | HTTP 200, plain text, not an HTML error/login page |
 | Crawler-standard robots | `/robots.txt` | `/robots.txt` | HTTP 200, appropriate rules for the whole host and the forum sitemap line |
 

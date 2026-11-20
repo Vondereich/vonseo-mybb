@@ -272,11 +272,29 @@ if($action === 'site_details_save')
     }
     verify_post_check($mybb->get_input('my_post_key'));
 
-    $siteName = trim(VonSEO_Utils::plainText($mybb->get_input('site_name')));
+    // Identity names are stored as typed. plainText() is for post snippets: it
+    // would strip "[TAG]" and URLs and decode entities into live markup.
+    $siteName = trim((string)$mybb->get_input('site_name'));
     $siteUrl = rtrim(trim((string)$mybb->get_input('site_url')), '/');
-    $homepageName = trim(VonSEO_Utils::plainText($mybb->get_input('homepage_name')));
+    $homepageName = trim((string)$mybb->get_input('homepage_name'));
     $homepageUrl = trim((string)$mybb->get_input('homepage_url'));
     $siteDescription = trim(VonSEO_Utils::plainText($mybb->get_input('site_description')));
+
+    // MyBB templates print these settings unescaped. This narrower permission
+    // must not introduce markup characters; an unchanged existing value set
+    // through MyBB's own settings is retained so other fields can still be saved.
+    $currentIdentity = array(
+        'site_name' => isset($mybb->settings['bbname']) ? trim((string)$mybb->settings['bbname']) : '',
+        'site_url' => isset($mybb->settings['bburl']) ? rtrim(trim((string)$mybb->settings['bburl']), '/') : '',
+        'homepage_name' => isset($mybb->settings['homename']) ? trim((string)$mybb->settings['homename']) : '',
+        'homepage_url' => isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : ''
+    );
+    $introducesMarkup = static function($value, $field) use ($currentIdentity) {
+        return VonSEO_Utils::hasMarkupCharacters($value) && $value !== $currentIdentity[$field];
+    };
+    $invalidName = static function($value) {
+        return preg_match('//u', $value) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1;
+    };
 
     $siteUrlParts = $siteUrl !== '' ? @parse_url($siteUrl) : false;
     $homepageUrlParts = $homepageUrl !== '' ? @parse_url($homepageUrl) : false;
@@ -289,21 +307,37 @@ if($action === 'site_details_save')
         empty($homepageUrlParts['user']) && empty($homepageUrlParts['pass']) &&
         !preg_match('/[\x00-\x20\x7F]/', $homepageUrl) && strpos($homepageUrl, '\\') === false);
 
-    if($siteName === '' || VonSEO_Utils::strlen($siteName) > 75)
+    if($siteName === '' || $invalidName($siteName) || VonSEO_Utils::strlen($siteName) > 75)
     {
-        $siteDetailsErrors['site_name'] = 'Board Name is required and must not exceed 75 characters.';
+        $siteDetailsErrors['site_name'] = 'Board Name is required, must be valid text without control characters and must not exceed 75 characters.';
+    }
+    elseif($introducesMarkup($siteName, 'site_name'))
+    {
+        $siteDetailsErrors['site_name'] = 'Board Name cannot contain <, >, " or ` characters.';
     }
     if(!$siteUrlValid)
     {
         $siteDetailsErrors['site_url'] = 'Board URL must be an absolute HTTP or HTTPS URL without credentials, a query string or fragment.';
     }
-    if(VonSEO_Utils::strlen($homepageName) > 120)
+    elseif($introducesMarkup($siteUrl, 'site_url'))
     {
-        $siteDetailsErrors['homepage_name'] = 'Homepage Name must not exceed 120 characters.';
+        $siteDetailsErrors['site_url'] = 'Board URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
+    }
+    if($invalidName($homepageName) || VonSEO_Utils::strlen($homepageName) > 120)
+    {
+        $siteDetailsErrors['homepage_name'] = 'Homepage Name must be valid text without control characters and must not exceed 120 characters.';
+    }
+    elseif($introducesMarkup($homepageName, 'homepage_name'))
+    {
+        $siteDetailsErrors['homepage_name'] = 'Homepage Name cannot contain <, >, " or ` characters.';
     }
     if(!$homepageUrlValid)
     {
         $siteDetailsErrors['homepage_url'] = 'Homepage URL must be blank or an absolute HTTP or HTTPS URL without credentials.';
+    }
+    elseif($introducesMarkup($homepageUrl, 'homepage_url'))
+    {
+        $siteDetailsErrors['homepage_url'] = 'Homepage URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
     }
     if(VonSEO_Utils::strlen($siteDescription) > 320)
     {
@@ -1042,9 +1076,11 @@ $siteDetails = new Table;
 $siteDetails->construct_header('Field', array('width' => 190));
 $siteDetails->construct_header('Value');
 $siteDetailRows = array(
-    array('Board Name', 'site_name', isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : '', 'Used for site name, titles and Open Graph.'),
+    // Prefill the stored values exactly; a filtered value would be saved back
+    // over the real setting when only another field is edited.
+    array('Board Name', 'site_name', isset($mybb->settings['bbname']) ? trim((string)$mybb->settings['bbname']) : '', 'Used for site name, titles and Open Graph.'),
     array('Board URL', 'site_url', $bburl, 'Canonical base. Change only when the forum really moves.'),
-    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim(VonSEO_Utils::plainText($mybb->settings['homename'])) : '', 'Parent site / Organization publisher name. It may differ from the Board Name.'),
+    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim((string)$mybb->settings['homename']) : '', 'Parent site / Organization publisher name. It may differ from the Board Name.'),
     array('Homepage URL', 'homepage_url', isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '', 'Parent site / Organization publisher URL. It may differ from the forum Board URL; no automatic synchronization is performed.'),
     array('SEO Description', 'site_description', isset($mybb->settings['vonseo_site_description']) ? trim((string)$mybb->settings['vonseo_site_description']) : '', 'VonSEO homepage description and fallback summary.')
 );
