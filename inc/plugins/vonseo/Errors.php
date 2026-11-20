@@ -131,15 +131,13 @@ class VonSEO_Errors
             $count = (int)$db->fetch_field($query, 'total');
             self::prune404Log($count);
 
+            // No second COUNT or datacache write per public 404: under a crawler
+            // flood each new path costs only the lock, one COUNT and this insert.
+            // The ACP recounts rows itself when it displays them.
             $db->write_query(
                 "INSERT INTO ".TABLE_PREFIX."vonseo_404_log (path_hash,path,hits,first_seen,last_seen) "
                 ."VALUES ('{$escapedHash}','{$escapedPath}',1,{$now},{$now})"
             );
-
-            if(class_exists('VonSEO_State'))
-            {
-                VonSEO_State::refresh404Count();
-            }
         }
         finally
         {

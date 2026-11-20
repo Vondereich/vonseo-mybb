@@ -13,6 +13,7 @@ $pluginSource = Get-Content -LiteralPath (Join-Path $root 'inc/plugins/vonseo.ph
 $utilsSource = Get-Content -LiteralPath (Join-Path $root 'inc/plugins/vonseo/Utils.php') -Raw
 $versionPattern = "(?m)define\(\s*'VONSEO_VERSION'\s*,\s*'$([regex]::Escape($Version))'\s*\)"
 if($pluginSource -notmatch "(?m)'version'\s*=>\s*VONSEO_VERSION" -or
+   $pluginSource -notmatch "(?m)^\s*\*\s*@version\s+$([regex]::Escape($Version))\s*$" -or
    $utilsSource -notmatch $versionPattern)
 {
     throw "Plugin metadata does not match requested package version $Version."

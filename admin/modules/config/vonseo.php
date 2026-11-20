@@ -35,7 +35,11 @@ $pluginVersion = !empty($pluginInfo['version']) ? $pluginInfo['version'] : 'Unkn
 $canManageSiteSettings = function_exists('check_admin_permissions') &&
     (check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_settings'), false) ||
      check_admin_permissions(array('module' => 'config', 'action' => 'settings'), false));
-$canManageSEO = function_exists('check_admin_permissions') &&
+// Board URL and Homepage URL steer every MyBB link and form. Changing them
+// needs MyBB's own Settings permission, not only the narrower Site Details one.
+$canChangeIdentityUrls = function_exists('check_admin_permissions') &&
+    check_admin_permissions(array('module' => 'config', 'action' => 'settings'), false);
+$canManageSEO =function_exists('check_admin_permissions') &&
     check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_overrides'), false);
 if(in_array($action, array('seo', 'seo_save', 'seo_reset', 'seo_preview'), true) && !$canManageSEO)
 {
@@ -333,6 +337,10 @@ if($action === 'site_details_save')
     {
         $siteDetailsErrors['site_url'] = 'Board URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
     }
+    elseif(!$canChangeIdentityUrls && $siteUrl !== $currentIdentity['site_url'])
+    {
+        $siteDetailsErrors['site_url'] = 'Changing the Board URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
+    }
     if($invalidName($homepageName) || VonSEO_Utils::strlen($homepageName) > 120)
     {
         $siteDetailsErrors['homepage_name'] = 'Homepage Name must be valid text without control characters and must not exceed 120 characters.';
@@ -348,6 +356,10 @@ if($action === 'site_details_save')
     elseif($introducesMarkup($homepageUrl, 'homepage_url'))
     {
         $siteDetailsErrors['homepage_url'] = 'Homepage URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
+    }
+    elseif(!$canChangeIdentityUrls && $homepageUrl !== $currentIdentity['homepage_url'])
+    {
+        $siteDetailsErrors['homepage_url'] = 'Changing the Homepage URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
     }
     if(VonSEO_Utils::strlen($siteDescription) > 320)
     {
@@ -1298,7 +1310,14 @@ foreach($siteDetailRows as $siteDetailRow)
     else
     {
         $fieldLimit = $siteDetailRow[1] === 'site_name' ? ' maxlength="75"' : ($siteDetailRow[1] === 'homepage_name' ? ' maxlength="120"' : '');
-        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.' style="width:98%" />';
+        // The server also rejects URL changes without Settings permission;
+        // readonly only explains it. The unchanged value is still submitted.
+        $urlLocked = !$canChangeIdentityUrls && in_array($siteDetailRow[1], array('site_url', 'homepage_url'), true);
+        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.($urlLocked ? ' readonly="readonly"' : '').' style="width:98%" />';
+        if($urlLocked)
+        {
+            $field .= '<br /><span class="vs-subtle">Changing this URL requires MyBB\'s Settings permission.</span>';
+        }
     }
     $siteDetails->construct_cell($field);
     $siteDetails->construct_row();

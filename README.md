@@ -118,7 +118,7 @@ Upgrade from 1.0.8 or a 1.1.0 beta: back up your files/database, replace all pac
 4. Reload ACP and confirm version 1.1.3. Check Site Details, SEO Controls and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
 5. Open the sitemap index once. Thread sitemap pages are now fixed thread-ID ranges, so their page numbers may skip values; keep submitting the index URL, not individual `type=threads` page URLs.
 
-This update does not change canonical URLs, keyword slugs, keyword settings, sitemap eligibility or IndexNow delivery. Titles and social/schema names now keep `[TAG]` prefixes and URLs. Site Details rejects new `<`, `>`, `"` and backtick characters in the Board/Homepage name and URL fields; an existing value set through MyBB's own settings is kept while unchanged. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.2 or 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
+This update does not change canonical URLs, keyword slugs, keyword settings, sitemap eligibility or IndexNow delivery. Titles and social/schema names now keep `[TAG]` prefixes and URLs. Site Details rejects new `<`, `>`, `"` and backtick characters in the Board/Homepage name and URL fields; an existing value set through MyBB's own settings is kept while unchanged. Changing the Board or Homepage URL now needs MyBB's Settings permission, and the custom 404 message is shown as plain text. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.2 or 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
 
 ## Apache setup: using the `extras` files
 
@@ -474,7 +474,9 @@ Submit the sitemap URL that is actually reachable on the public site. With no cl
 - database migration and IndexNow queue diagnostics, plus **Needs attention** messages for reported issues and a separate informational host-root robots reminder on subfolder boards;
 - protected one-click actions to use MyBB's board identity directly and to replace the IndexNow verification key.
 
-MyBB administrator permissions are split by responsibility. The base **VonSEO** permission opens health, redirects, the 404 monitor and the IndexNow Queue tab. Changing Site Details or rotating the IndexNow key additionally requires **Can change VonSEO Site Details and rotate the IndexNow key?** or MyBB's core settings permission. After upgrading, grant the additional permission only to administrators who should be able to change the board identity and crawler key; super administrators continue to have access automatically.
+MyBB administrator permissions are split by responsibility. The base **VonSEO** permission opens health, redirects, the 404 monitor and the IndexNow Queue tab. Changing the Site Details names and SEO description, or rotating the IndexNow key, additionally requires **Can change VonSEO Site Details names/description and rotate the IndexNow key?** or MyBB's core settings permission. Changing the **Board URL** or **Homepage URL** always requires MyBB's core Settings permission (1.1.3): the Board URL steers every MyBB link and form, so a narrower account could otherwise redirect the whole board. Without it, both URL fields are read-only and a changed URL is rejected. After upgrading, grant the additional permission only to administrators who should be able to change the board identity and crawler key; super administrators continue to have access automatically.
+
+The custom 404 message (`vonseo_404_message`) is plain text. HTML is shown literally and line breaks are kept.
 
 ## Indexing defaults
 

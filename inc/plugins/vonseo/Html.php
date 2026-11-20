@@ -149,6 +149,19 @@ class VonSEO_Html
             }
             if(!preg_match('~\G<(/?)([a-z][a-z0-9:-]*)(?=[\t\n\f\r />])~i', $html, $match, 0, $start))
             {
+                // HTML5 starts a tag at "<" + letter (or "</" + letter) and its
+                // name runs to whitespace, "/" or ">", so "<meta<meta name=x>"
+                // is ONE unknown element. Skip the whole tag; resuming one byte
+                // later would expose a fake inner tag a browser never sees.
+                if(preg_match('~\G</?[a-z]~i', $html, $unused, 0, $start))
+                {
+                    $offset = self::tagEnd($html, $start + 1);
+                    if($offset > $length)
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 $offset = $start + 1;
                 continue;
             }
