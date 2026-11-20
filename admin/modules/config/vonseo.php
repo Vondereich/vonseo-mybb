@@ -604,6 +604,14 @@ if(in_array($action, array('indexnow_retry', 'indexnow_remove'), true))
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
+        // The task may have sent, dropped or replaced this generation since the
+        // page loaded. Report that instead of a success that changed nothing.
+        $queueQuery = $db->simple_select('vonseo_indexnow_queue', 'qid', $queueCondition, array('limit' => 1));
+        if((int)$db->fetch_field($queueQuery, 'qid') !== $qid)
+        {
+            flash_message('That IndexNow queue entry is no longer available. It may have been sent, removed or replaced by newer activity.', 'error');
+            admin_redirect('index.php?module=config-vonseo&action=indexnow');
+        }
         if($action === 'indexnow_retry')
         {
             // Attempts are kept, so the worker's retry limit still applies.
