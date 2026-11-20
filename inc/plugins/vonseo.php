@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.1.0
+ * @version 1.1.3
  */
 
 if(!defined('IN_MYBB'))
@@ -225,7 +225,7 @@ function vonseo_install()
         array(
             'name'        => 'vonseo_404_message',
             'title'       => 'Custom 404 Message',
-            'description' => 'Message shown when the optional VonSEO custom 404 endpoint is used.',
+            'description' => 'Plain-text message shown when the optional VonSEO custom 404 endpoint is used. HTML is shown literally; line breaks are kept.',
             'optionscode' => 'textarea',
             'value'       => 'The requested page could not be found.',
             'disporder'   => 16
@@ -1179,7 +1179,7 @@ function vonseo_misc_router()
         $sitemap->output();
     }
 
-    if($action === 'vonseo_route')
+    if($action === 'vonseo_route' || $action === 'vonseo_404')
     {
         if(empty($mybb->settings['vonseo_404_enabled']))
         {
@@ -1188,29 +1188,7 @@ function vonseo_misc_router()
 
         $GLOBALS['vonseo_forced_status'] = 404;
         $GLOBALS['vonseo_error_seen'] = true;
-        $message = trim(VonSEO_Utils::setting('vonseo_404_message', 'The requested page could not be found.'));
-        if($message === '')
-        {
-            $message = 'The requested page could not be found.';
-        }
-        error($message, 'Page Not Found');
-    }
-
-    if($action === 'vonseo_404')
-    {
-        if(empty($mybb->settings['vonseo_404_enabled']))
-        {
-            error_no_permission();
-        }
-
-        $GLOBALS['vonseo_forced_status'] = 404;
-        $GLOBALS['vonseo_error_seen'] = true;
-        $message = trim(VonSEO_Utils::setting('vonseo_404_message', 'The requested page could not be found.'));
-        if($message === '')
-        {
-            $message = 'The requested page could not be found.';
-        }
-        error($message, 'Page Not Found');
+        error(vonseo_404_message_html(), 'Page Not Found');
     }
 
     if($action === 'vonseo_robots')
@@ -1225,6 +1203,22 @@ function vonseo_misc_router()
     }
 
     exit;
+}
+
+/**
+ * The custom 404 message is plain text. MyBB's error() prints its message as
+ * HTML, so escape it here; line breaks are kept.
+ *
+ * @return string
+ */
+function vonseo_404_message_html()
+{
+    $message = trim((string)VonSEO_Utils::setting('vonseo_404_message', ''));
+    if($message === '')
+    {
+        $message = 'The requested page could not be found.';
+    }
+    return nl2br(VonSEO_Utils::h($message));
 }
 
 function vonseo_request_start()
@@ -1303,7 +1297,7 @@ function vonseo_admin_action_handler($actions)
 function vonseo_admin_permissions($permissions)
 {
     $permissions['vonseo'] = 'Can view VonSEO health and manage redirects and the 404 monitor?';
-    $permissions['vonseo_settings'] = 'Can change VonSEO Site Details and rotate the IndexNow key?';
+    $permissions['vonseo_settings'] = 'Can change VonSEO Site Details names/description and rotate the IndexNow key? (Board/Homepage URL changes also need Settings permission.)';
     $permissions['vonseo_overrides'] = 'Can manage VonSEO forum/thread SEO overrides and previews?';
     return $permissions;
 }

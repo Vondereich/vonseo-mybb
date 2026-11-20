@@ -20,7 +20,7 @@ class VonSEO_Social
             array('property', 'og:title', $context->title),
             array('property', 'og:type', $articleType ? 'article' : ($context->type === 'profile' ? 'profile' : 'website')),
             array('property', 'og:url', $context->canonical),
-            array('property', 'og:site_name', isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : ''),
+            array('property', 'og:site_name', isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::labelText($mybb->settings['bbname'])) : ''),
             array('name', 'twitter:card', $context->socialImage !== '' ? 'summary_large_image' : 'summary'),
             array('name', 'twitter:title', $context->title)
         );
@@ -53,7 +53,7 @@ class VonSEO_Social
             }
             if(!empty($forum['name']))
             {
-                $tags[] = array('property', 'article:section', VonSEO_Utils::plainText($forum['name']));
+                $tags[] = array('property', 'article:section', VonSEO_Utils::labelText($forum['name']));
             }
             $authorUrl = (new VonSEO_Url())->publicProfile(isset($thread['uid']) ? $thread['uid'] : 0);
             if($context->indexable && $authorUrl !== '')
@@ -72,7 +72,7 @@ class VonSEO_Social
             }
             if(!empty($forum['name']))
             {
-                $tags[] = array('property', 'article:section', VonSEO_Utils::plainText($forum['name']));
+                $tags[] = array('property', 'article:section', VonSEO_Utils::labelText($forum['name']));
             }
             $authorUrl = (new VonSEO_Url())->publicProfile(isset($announcement['uid']) ? $announcement['uid'] : 0);
             if($context->indexable && $authorUrl !== '')

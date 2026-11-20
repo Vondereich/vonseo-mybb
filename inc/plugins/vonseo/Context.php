@@ -166,7 +166,7 @@ class VonSEO_Context
             'calendar' => $calendarData,
             'year' => $year,
             'month' => $month,
-            'label' => VonSEO_Utils::plainText($label),
+            'label' => VonSEO_Utils::labelText($label),
             'date_explicit' => (bool)$dateExplicit
         );
     }
@@ -450,7 +450,7 @@ class VonSEO_Context
         $this->data = $forumData;
         $this->indexable = $this->isForumPublic($forumData);
 
-        $name = isset($forumData['name']) ? VonSEO_Utils::plainText($forumData['name']) : '';
+        $name = isset($forumData['name']) ? VonSEO_Utils::labelText($forumData['name']) : '';
         $forumTitle = $this->page > 1 ? $name.' - Page '.$this->page : $name;
         $this->title = $this->withBoardName($forumTitle);
         $this->description = VonSEO_Utils::truncateDescription(isset($forumData['description']) ? $forumData['description'] : '');
@@ -510,7 +510,7 @@ class VonSEO_Context
 
         $this->indexable = ($visible === 1 && !$moved && $this->isForumPublic($forumData));
 
-        $subject = isset($threadData['subject']) ? VonSEO_Utils::plainText($threadData['subject']) : '';
+        $subject = isset($threadData['subject']) ? VonSEO_Utils::labelText($threadData['subject']) : '';
         $this->title = $this->withBoardName($subject);
         if($this->page > 1)
         {
@@ -596,7 +596,7 @@ class VonSEO_Context
         $this->indexable = $this->isAnnouncementPublic($announcementData, $forumData);
 
         $subject = isset($announcementData['subject'])
-            ? VonSEO_Utils::plainText($announcementData['subject']) : '';
+            ? VonSEO_Utils::labelText($announcementData['subject']) : '';
         $this->title = $this->withBoardName($subject);
 
         $rendered = self::$guestAnnouncement;
@@ -639,8 +639,8 @@ class VonSEO_Context
         );
         $this->indexable = true;
 
-        $name = isset($calendarData['name']) ? VonSEO_Utils::plainText($calendarData['name']) : '';
-        $label = isset($captured['label']) ? VonSEO_Utils::plainText($captured['label']) : '';
+        $name = isset($calendarData['name']) ? VonSEO_Utils::labelText($calendarData['name']) : '';
+        $label = isset($captured['label']) ? VonSEO_Utils::labelText($captured['label']) : '';
         $calendarTitle = trim($name.($label !== '' ? ' - '.$label : ''));
         $this->title = $this->withBoardName($calendarTitle);
         $this->description = VonSEO_Utils::truncateDescription(VonSEO_Utils::setting('vonseo_site_description'));
@@ -702,7 +702,7 @@ class VonSEO_Context
             'event_text' => $text
         );
         $this->indexable = true;
-        $name = isset($eventData['name']) ? VonSEO_Utils::plainText($eventData['name']) : '';
+        $name = isset($eventData['name']) ? VonSEO_Utils::labelText($eventData['name']) : '';
         $this->title = $this->withBoardName($name);
         $this->description = VonSEO_Utils::truncateDescription($text);
         if($this->description === '')
@@ -745,7 +745,7 @@ class VonSEO_Context
 
         $this->data = $profile;
 
-        $username = isset($profile['username']) ? VonSEO_Utils::plainText($profile['username']) : '';
+        $username = isset($profile['username']) ? VonSEO_Utils::labelText($profile['username']) : '';
         $this->title = $this->withBoardName($username);
 
         $profileText = '';
@@ -966,7 +966,7 @@ class VonSEO_Context
     protected function boardName()
     {
         global $mybb;
-        return isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : '';
+        return isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::labelText($mybb->settings['bbname'])) : '';
     }
 
     protected function separator()
@@ -981,7 +981,7 @@ class VonSEO_Context
      */
     protected function withBoardName($title)
     {
-        $title = VonSEO_Utils::plainText($title);
+        $title = VonSEO_Utils::labelText($title);
         $board = $this->boardName();
 
         if($title === '')

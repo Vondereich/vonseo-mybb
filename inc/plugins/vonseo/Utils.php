@@ -6,7 +6,7 @@ if(!defined('IN_MYBB'))
 
 if(!defined('VONSEO_VERSION'))
 {
-    define('VONSEO_VERSION', '1.1.2');
+    define('VONSEO_VERSION', '1.1.3');
 }
 
 class VonSEO_Utils
@@ -264,6 +264,34 @@ class VonSEO_Utils
         $value = preg_replace('/\s+/u', ' ', $value);
 
         return trim($value);
+    }
+
+    /**
+     * Display text for a name or title: board/homepage names, thread and
+     * announcement subjects, forum/calendar/event names and usernames.
+     * Unlike plainText(), brackets and URLs are kept: these are labels, not
+     * post bodies, so "[SOLVED] Forum" must not become "Forum". Use
+     * plainText() only for descriptions built from post-like text.
+     *
+     * @param mixed $value
+     * @return string
+     */
+    public static function labelText($value)
+    {
+        $value = preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string)$value), ENT_QUOTES, 'UTF-8'));
+        return is_string($value) ? trim($value) : '';
+    }
+
+    /**
+     * MyBB templates print identity settings without escaping, including in
+     * double-quoted attributes. These characters can open a tag or end one.
+     *
+     * @param mixed $value
+     * @return bool
+     */
+    public static function hasMarkupCharacters($value)
+    {
+        return preg_match('/[<>"`]/', (string)$value) === 1;
     }
 
     /**

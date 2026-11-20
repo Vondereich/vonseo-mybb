@@ -35,7 +35,11 @@ $pluginVersion = !empty($pluginInfo['version']) ? $pluginInfo['version'] : 'Unkn
 $canManageSiteSettings = function_exists('check_admin_permissions') &&
     (check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_settings'), false) ||
      check_admin_permissions(array('module' => 'config', 'action' => 'settings'), false));
-$canManageSEO = function_exists('check_admin_permissions') &&
+// Board URL and Homepage URL steer every MyBB link and form. Changing them
+// needs MyBB's own Settings permission, not only the narrower Site Details one.
+$canChangeIdentityUrls = function_exists('check_admin_permissions') &&
+    check_admin_permissions(array('module' => 'config', 'action' => 'settings'), false);
+$canManageSEO =function_exists('check_admin_permissions') &&
     check_admin_permissions(array('module' => 'config', 'action' => 'vonseo_overrides'), false);
 if(in_array($action, array('seo', 'seo_save', 'seo_reset', 'seo_preview'), true) && !$canManageSEO)
 {
@@ -181,6 +185,11 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-notfound td:nth-child(3):before{content:"First Seen"}
 .vs-table-notfound td:nth-child(4):before{content:"Last Seen"}
 .vs-table-notfound td:nth-child(5):before{content:"Controls"}
+.vs-table-indexnow td:nth-child(1):before{content:"URL"}
+.vs-table-indexnow td:nth-child(2):before{content:"State"}
+.vs-table-indexnow td:nth-child(3):before{content:"Attempts"}
+.vs-table-indexnow td:nth-child(4):before{content:"Last error"}
+.vs-table-indexnow td:nth-child(5):before{content:"Controls"}
 .vs-table-inspector td:nth-child(1):before{content:"Step"}
 .vs-table-inspector td:nth-child(2):before{content:"Source"}
 .vs-table-inspector td:nth-child(3):before{content:"Response / State"}
@@ -225,6 +234,11 @@ function vonseo_admin_tabs($active)
             'title' => '404 Monitor',
             'link' => 'index.php?module=config-vonseo&amp;action=notfound',
             'description' => 'Review recurring missing public URLs and create fixes.'
+        ),
+        'indexnow' => array(
+            'title' => 'IndexNow Queue',
+            'link' => 'index.php?module=config-vonseo&amp;action=indexnow',
+            'description' => 'Review queued IndexNow notifications, retry them now or remove them.'
         )
     );
 
@@ -272,11 +286,29 @@ if($action === 'site_details_save')
     }
     verify_post_check($mybb->get_input('my_post_key'));
 
-    $siteName = trim(VonSEO_Utils::plainText($mybb->get_input('site_name')));
+    // Identity names are stored as typed. plainText() is for post snippets: it
+    // would strip "[TAG]" and URLs and decode entities into live markup.
+    $siteName = trim((string)$mybb->get_input('site_name'));
     $siteUrl = rtrim(trim((string)$mybb->get_input('site_url')), '/');
-    $homepageName = trim(VonSEO_Utils::plainText($mybb->get_input('homepage_name')));
+    $homepageName = trim((string)$mybb->get_input('homepage_name'));
     $homepageUrl = trim((string)$mybb->get_input('homepage_url'));
     $siteDescription = trim(VonSEO_Utils::plainText($mybb->get_input('site_description')));
+
+    // MyBB templates print these settings unescaped. This narrower permission
+    // must not introduce markup characters; an unchanged existing value set
+    // through MyBB's own settings is retained so other fields can still be saved.
+    $currentIdentity = array(
+        'site_name' => isset($mybb->settings['bbname']) ? trim((string)$mybb->settings['bbname']) : '',
+        'site_url' => isset($mybb->settings['bburl']) ? rtrim(trim((string)$mybb->settings['bburl']), '/') : '',
+        'homepage_name' => isset($mybb->settings['homename']) ? trim((string)$mybb->settings['homename']) : '',
+        'homepage_url' => isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : ''
+    );
+    $introducesMarkup = static function($value, $field) use ($currentIdentity) {
+        return VonSEO_Utils::hasMarkupCharacters($value) && $value !== $currentIdentity[$field];
+    };
+    $invalidName = static function($value) {
+        return preg_match('//u', $value) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1;
+    };
 
     $siteUrlParts = $siteUrl !== '' ? @parse_url($siteUrl) : false;
     $homepageUrlParts = $homepageUrl !== '' ? @parse_url($homepageUrl) : false;
@@ -289,21 +321,45 @@ if($action === 'site_details_save')
         empty($homepageUrlParts['user']) && empty($homepageUrlParts['pass']) &&
         !preg_match('/[\x00-\x20\x7F]/', $homepageUrl) && strpos($homepageUrl, '\\') === false);
 
-    if($siteName === '' || VonSEO_Utils::strlen($siteName) > 75)
+    if($siteName === '' || $invalidName($siteName) || VonSEO_Utils::strlen($siteName) > 75)
     {
-        $siteDetailsErrors['site_name'] = 'Board Name is required and must not exceed 75 characters.';
+        $siteDetailsErrors['site_name'] = 'Board Name is required, must be valid text without control characters and must not exceed 75 characters.';
+    }
+    elseif($introducesMarkup($siteName, 'site_name'))
+    {
+        $siteDetailsErrors['site_name'] = 'Board Name cannot contain <, >, " or ` characters.';
     }
     if(!$siteUrlValid)
     {
         $siteDetailsErrors['site_url'] = 'Board URL must be an absolute HTTP or HTTPS URL without credentials, a query string or fragment.';
     }
-    if(VonSEO_Utils::strlen($homepageName) > 120)
+    elseif($introducesMarkup($siteUrl, 'site_url'))
     {
-        $siteDetailsErrors['homepage_name'] = 'Homepage Name must not exceed 120 characters.';
+        $siteDetailsErrors['site_url'] = 'Board URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
+    }
+    elseif(!$canChangeIdentityUrls && $siteUrl !== $currentIdentity['site_url'])
+    {
+        $siteDetailsErrors['site_url'] = 'Changing the Board URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
+    }
+    if($invalidName($homepageName) || VonSEO_Utils::strlen($homepageName) > 120)
+    {
+        $siteDetailsErrors['homepage_name'] = 'Homepage Name must be valid text without control characters and must not exceed 120 characters.';
+    }
+    elseif($introducesMarkup($homepageName, 'homepage_name'))
+    {
+        $siteDetailsErrors['homepage_name'] = 'Homepage Name cannot contain <, >, " or ` characters.';
     }
     if(!$homepageUrlValid)
     {
         $siteDetailsErrors['homepage_url'] = 'Homepage URL must be blank or an absolute HTTP or HTTPS URL without credentials.';
+    }
+    elseif($introducesMarkup($homepageUrl, 'homepage_url'))
+    {
+        $siteDetailsErrors['homepage_url'] = 'Homepage URL cannot contain raw <, >, " or ` characters. Percent-encode them if they are really part of the address.';
+    }
+    elseif(!$canChangeIdentityUrls && $homepageUrl !== $currentIdentity['homepage_url'])
+    {
+        $siteDetailsErrors['homepage_url'] = 'Changing the Homepage URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
     }
     if(VonSEO_Utils::strlen($siteDescription) > 320)
     {
@@ -542,6 +598,76 @@ if($action === 'notfound_clear_all')
     }
 
     $page->output_confirm_action('index.php?module=config-vonseo&action=notfound_clear_all', 'Clear all VonSEO 404 monitor entries?');
+}
+
+if(in_array($action, array('indexnow_retry', 'indexnow_remove'), true))
+{
+    // A row is addressed by qid and its generation, so a newer content
+    // generation admitted after the page loaded is never retried or removed.
+    $qid = $mybb->get_input('qid', MyBB::INPUT_INT);
+    $generation = (string)$mybb->get_input('generation');
+    if($qid <= 0 || !preg_match('/^[a-f0-9]{32}$/', $generation) || !$db->table_exists('vonseo_indexnow_queue'))
+    {
+        flash_message('That IndexNow queue entry is no longer available.', 'error');
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+    $queueCondition = "qid='{$qid}' AND generation='".$db->escape_string($generation)."'";
+
+    if($mybb->request_method === 'post')
+    {
+        verify_post_check($mybb->get_input('my_post_key'));
+        // The task may have sent, dropped or replaced this generation since the
+        // page loaded. Report that instead of a success that changed nothing.
+        $queueQuery = $db->simple_select('vonseo_indexnow_queue', 'qid', $queueCondition, array('limit' => 1));
+        if((int)$db->fetch_field($queueQuery, 'qid') !== $qid)
+        {
+            flash_message('That IndexNow queue entry is no longer available. It may have been sent, removed or replaced by newer activity.', 'error');
+            admin_redirect('index.php?module=config-vonseo&action=indexnow');
+        }
+        if($action === 'indexnow_retry')
+        {
+            // Attempts are kept, so the worker's retry limit still applies.
+            $db->update_query('vonseo_indexnow_queue', array('available_at' => (int)TIME_NOW,
+                'retry_not_before' => 0, 'updated_at' => (int)TIME_NOW), $queueCondition);
+            log_admin_action('vonseo_indexnow_retry', $qid);
+            flash_message('The queued URL is due now. The next IndexNow task run will re-check that it is still public before sending it.', 'success');
+        }
+        else
+        {
+            $db->delete_query('vonseo_indexnow_queue', $queueCondition);
+            if(class_exists('VonSEO_State'))
+            {
+                VonSEO_State::refreshQueueDepth();
+            }
+            log_admin_action('vonseo_indexnow_remove', $qid);
+            flash_message('The queued URL was removed. New activity on that thread can queue it again.', 'success');
+        }
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+
+    $confirmUrl = 'index.php?module=config-vonseo&action='.$action.'&qid='.$qid.'&generation='.$generation;
+    $page->output_confirm_action($confirmUrl, $action === 'indexnow_retry'
+        ? 'Make this queued IndexNow URL due now? Its attempt count is kept.'
+        : 'Remove this URL from the IndexNow queue? It will not be sent unless new activity queues it again.');
+}
+
+if($action === 'indexnow_retry_all')
+{
+    if($mybb->request_method === 'post')
+    {
+        verify_post_check($mybb->get_input('my_post_key'));
+        if($db->table_exists('vonseo_indexnow_queue'))
+        {
+            $db->update_query('vonseo_indexnow_queue', array('retry_not_before' => 0, 'updated_at' => (int)TIME_NOW),
+                "retry_not_before>'".(int)TIME_NOW."'");
+        }
+        log_admin_action('vonseo_indexnow_retry_all');
+        flash_message('Retry waits were cleared. Scheduled cooldowns are unchanged, and the task still sends at most 25 URLs per run.', 'success');
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+
+    $page->output_confirm_action('index.php?module=config-vonseo&action=indexnow_retry_all',
+        'Clear the retry wait for every URL waiting after a failed delivery? Use this after fixing the cause, for example a key or rate-limit problem.');
 }
 
 if($action === 'redirect_add' || $action === 'redirect_edit')
@@ -872,6 +998,106 @@ if($action === 'notfound')
     exit;
 }
 
+if($action === 'indexnow')
+{
+    $list = new VonSEO_AdminList('indexnow', $mybb->input);
+    $listRows = $list->rows();
+    $queueNow = (int)TIME_NOW;
+    $queueSummary = array('total' => 0, 'due' => 0, 'retry' => 0, 'removed' => 0);
+    if($db->table_exists('vonseo_indexnow_queue'))
+    {
+        $summaryQuery = $db->simple_select('vonseo_indexnow_queue',
+            "COUNT(qid) AS total, SUM(available_at<={$queueNow} AND retry_not_before<={$queueNow}) AS due, "
+            ."SUM(retry_not_before>{$queueNow}) AS retry, SUM(event_type='removed') AS removed");
+        $summaryRow = $db->fetch_array($summaryQuery);
+        foreach($queueSummary as $summaryKey => $unused)
+        {
+            $queueSummary[$summaryKey] = is_array($summaryRow) && isset($summaryRow[$summaryKey]) ? (int)$summaryRow[$summaryKey] : 0;
+        }
+    }
+
+    $page->output_header('VonSEO - IndexNow Queue');
+    vonseo_admin_tabs('indexnow');
+
+    echo $vonseoAdminCss;
+    echo '<div class="vs-page">';
+    echo '<div class="vs-page-header">';
+    echo '<div><span class="vs-eyebrow">Crawler notifications</span><h2>IndexNow queue</h2>';
+    echo '<p>URLs waiting for the background IndexNow task. Each run sends at most 25 due URLs and re-checks that every thread is still public first.</p></div>';
+    if($queueSummary['retry'] > 0)
+    {
+        echo '<div class="vs-actions"><a class="button" href="index.php?module=config-vonseo&amp;action=indexnow_retry_all">Retry all waiting</a></div>';
+    }
+    echo '</div>';
+    if(empty($mybb->settings['vonseo_enabled']) || empty($mybb->settings['vonseo_indexnow_enabled']))
+    {
+        echo '<div class="vs-notice is-warning">IndexNow is disabled in VonSEO settings. Queued URLs are kept, but nothing is sent until the SEO engine and IndexNow are enabled.</div>';
+    }
+    echo '<div class="vs-summary">';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['total']).'</strong><span>Queued URLs</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['due']).'</strong><span>Due now</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['retry']).'</strong><span>Waiting to retry</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['removed']).'</strong><span>Removal notices</span></div>';
+    echo '</div>';
+    echo '<div class="vs-notice">Retry now keeps the attempt count; a URL is dropped after '.(class_exists('VonSEO_IndexNow') ? (int)VonSEO_IndexNow::MAX_ATTEMPTS : 10)
+        .' failed attempts. Removing an entry does not stop the thread from being queued again by new activity. Delivery does not guarantee indexing.</div>';
+
+    echo $list->filters();
+    $table = new Table;
+    $table->construct_header($list->heading('URL', 'path'));
+    $table->construct_header($list->heading('State', 'next'), array('width' => 190));
+    $table->construct_header($list->heading('Attempts', 'attempts'), array('class' => 'align_center', 'width' => 90));
+    $table->construct_header('Last error');
+    $table->construct_header('Controls', array('class' => 'align_center', 'width' => 150));
+
+    foreach($listRows as $row)
+    {
+        $availableAt = (int)$row['available_at'];
+        $retryAt = (int)$row['retry_not_before'];
+        if($retryAt > $queueNow)
+        {
+            $state = '<span class="vs-status is-warn">Waiting to retry</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $retryAt)).'</span>';
+        }
+        elseif($availableAt > $queueNow)
+        {
+            $state = '<span class="vs-status is-neutral">Scheduled</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $availableAt)).'</span>';
+        }
+        else
+        {
+            $state = '<span class="vs-status is-on">Due now</span>';
+        }
+        $kind = isset($row['event_type']) && $row['event_type'] === 'removed' ? 'Removal notice' : 'Updated content';
+        $table->construct_cell('<span class="vs-code">'.htmlspecialchars_uni($row['url']).'</span><br /><span class="vs-subtle">'
+            .htmlspecialchars_uni($kind).' &middot; thread #'.(int)$row['tid'].'</span>');
+        $table->construct_cell($state);
+        $table->construct_cell(my_number_format((int)$row['attempts']), array('class' => 'align_center'));
+        $table->construct_cell($row['last_error'] !== '' ? htmlspecialchars_uni($row['last_error']) : '<span class="vs-subtle">None</span>');
+        $rowKey = '&amp;qid='.(int)$row['qid'].'&amp;generation='.htmlspecialchars_uni($row['generation']);
+        $table->construct_cell('<span class="vs-row-actions">'
+            .'<a href="index.php?module=config-vonseo&amp;action=indexnow_retry'.$rowKey.'">Retry now</a>'
+            .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=indexnow_remove'.$rowKey.'">Remove</a></span>',
+            array('class' => 'align_center'));
+        $table->construct_row();
+    }
+
+    if($table->num_rows() === 0)
+    {
+        $empty = $queueSummary['total'] > 0
+            ? 'No queued URLs match these filters. Try another URL or reset the filters.'
+            : 'The IndexNow queue is empty. New, edited and moderated public threads appear here until the task sends them.';
+        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 5));
+        $table->construct_row();
+    }
+
+    echo '<div class="vs-table-wrap vs-table-cards vs-table-indexnow">';
+    $table->output('Queued notifications');
+    echo '</div>';
+    echo $list->pagination();
+    echo '</div>';
+    $page->output_footer();
+    exit;
+}
+
 if($action === 'guide')
 {
     $page->output_header('VonSEO - How to use');
@@ -1042,9 +1268,11 @@ $siteDetails = new Table;
 $siteDetails->construct_header('Field', array('width' => 190));
 $siteDetails->construct_header('Value');
 $siteDetailRows = array(
-    array('Board Name', 'site_name', isset($mybb->settings['bbname']) ? trim(VonSEO_Utils::plainText($mybb->settings['bbname'])) : '', 'Used for site name, titles and Open Graph.'),
+    // Prefill the stored values exactly; a filtered value would be saved back
+    // over the real setting when only another field is edited.
+    array('Board Name', 'site_name', isset($mybb->settings['bbname']) ? trim((string)$mybb->settings['bbname']) : '', 'Used for site name, titles and Open Graph.'),
     array('Board URL', 'site_url', $bburl, 'Canonical base. Change only when the forum really moves.'),
-    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim(VonSEO_Utils::plainText($mybb->settings['homename'])) : '', 'Parent site / Organization publisher name. It may differ from the Board Name.'),
+    array('Homepage Name', 'homepage_name', isset($mybb->settings['homename']) ? trim((string)$mybb->settings['homename']) : '', 'Parent site / Organization publisher name. It may differ from the Board Name.'),
     array('Homepage URL', 'homepage_url', isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : '', 'Parent site / Organization publisher URL. It may differ from the forum Board URL; no automatic synchronization is performed.'),
     array('SEO Description', 'site_description', isset($mybb->settings['vonseo_site_description']) ? trim((string)$mybb->settings['vonseo_site_description']) : '', 'VonSEO homepage description and fallback summary.')
 );
@@ -1082,7 +1310,14 @@ foreach($siteDetailRows as $siteDetailRow)
     else
     {
         $fieldLimit = $siteDetailRow[1] === 'site_name' ? ' maxlength="75"' : ($siteDetailRow[1] === 'homepage_name' ? ' maxlength="120"' : '');
-        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.' style="width:98%" />';
+        // The server also rejects URL changes without Settings permission;
+        // readonly only explains it. The unchanged value is still submitted.
+        $urlLocked = !$canChangeIdentityUrls && in_array($siteDetailRow[1], array('site_url', 'homepage_url'), true);
+        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.($urlLocked ? ' readonly="readonly"' : '').' style="width:98%" />';
+        if($urlLocked)
+        {
+            $field .= '<br /><span class="vs-subtle">Changing this URL requires MyBB\'s Settings permission.</span>';
+        }
     }
     $siteDetails->construct_cell($field);
     $siteDetails->construct_row();
@@ -1246,6 +1481,7 @@ if($indexNowWorkerStatus === 'config_error')
 {
     $indexNowDetail .= ' Worker delivery is paused until configuration is fixed; the queue is retained.';
 }
+$indexNowDetail .= ' <a href="index.php?module=config-vonseo&amp;action=indexnow">Review queue</a>';
 $health->construct_cell($indexNowDetail);
 $health->construct_row();
 

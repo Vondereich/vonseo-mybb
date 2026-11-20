@@ -131,7 +131,7 @@ class VonSEO_Overrides
                 $errors[] = $field.' must contain valid UTF-8 text without binary NUL bytes.';
                 continue;
             }
-            $value = $field === 'seo_image' ? trim($raw) : trim(VonSEO_Utils::plainText($raw));
+            $value = $field === 'seo_image' ? trim($raw) : trim($field === 'seo_title' ? VonSEO_Utils::labelText($raw) : VonSEO_Utils::plainText($raw));
             if(VonSEO_Utils::strlen($value) > $limit)
             {
                 $errors[] = $field.' exceeds the '.$limit.' character storage limit.';

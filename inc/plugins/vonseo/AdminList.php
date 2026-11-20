@@ -15,6 +15,10 @@ class VonSEO_AdminList
     public $status;
     /** @var string */
     public $enabled;
+    /** @var string IndexNow queue state: due, retry or scheduled. */
+    public $state = '';
+    /** @var string IndexNow queue event: current or removed. */
+    public $event = '';
     /** @var string */
     public $sort;
     /** @var string */
@@ -34,7 +38,7 @@ class VonSEO_AdminList
      */
     public function __construct($type, array $input)
     {
-        if(!in_array($type, array('redirects', 'notfound'), true))
+        if(!in_array($type, array('redirects', 'notfound', 'indexnow'), true))
         {
             throw new InvalidArgumentException('Unknown VonSEO list.');
         }
@@ -44,21 +48,37 @@ class VonSEO_AdminList
             return isset($input[$key]) && is_scalar($input[$key]) ? (string)$input[$key] : $fallback;
         };
         $this->search = VonSEO_Utils::substr(trim($value('search')), 0, 200);
-        $this->status = in_array($value('status'), array('301', '302', '307', '308', '410'), true) ? $value('status') : '';
-        $this->enabled = in_array($value('enabled'), array('0', '1'), true) ? $value('enabled') : '';
-        $default = $type === 'redirects' ? 'newest' : 'hits';
+        $this->status = $type === 'redirects' && in_array($value('status'), array('301', '302', '307', '308', '410'), true) ? $value('status') : '';
+        $this->enabled = $type === 'redirects' && in_array($value('enabled'), array('0', '1'), true) ? $value('enabled') : '';
+        if($type === 'indexnow')
+        {
+            $this->state = in_array($value('state'), array('due', 'retry', 'scheduled'), true) ? $value('state') : '';
+            $this->event = in_array($value('event'), array('current', 'removed'), true) ? $value('event') : '';
+        }
+        $defaults = array('redirects' => 'newest', 'notfound' => 'hits', 'indexnow' => 'next');
+        $default = $defaults[$type];
         $this->sort = array_key_exists($value('sort'), $this->sorts()) ? $value('sort') : $default;
         $this->direction = in_array($value('direction'), array('asc', 'desc'), true)
-            ? $value('direction') : ($this->sort === 'path' ? 'asc' : 'desc');
+            ? $value('direction') : (in_array($this->sort, array('path', 'next'), true) ? 'asc' : 'desc');
         $this->page = max(1, (int)$value('page', '1'));
     }
 
     /** @return array */
     public function sorts()
     {
+        if($this->type === 'indexnow')
+        {
+            return array('next' => 'Next attempt', 'attempts' => 'Attempts', 'updated' => 'Last change', 'path' => 'URL');
+        }
         return $this->type === 'redirects'
             ? array('newest' => 'Created', 'path' => 'Source URL', 'hits' => 'Hits', 'last_hit' => 'Last hit')
             : array('hits' => 'Hits', 'path' => 'Missing URL', 'first_seen' => 'First seen', 'last_seen' => 'Last seen');
+    }
+
+    /** @return int */
+    protected function now()
+    {
+        return defined('TIME_NOW') ? (int)TIME_NOW : time();
     }
 
     /** @return string */
@@ -71,9 +91,31 @@ class VonSEO_AdminList
             // Treat LIKE metacharacters literally, independently of SQL backslash mode.
             $literal = str_replace(array('!', '%', '_'), array('!!', '!%', '!_'), $this->search);
             $pattern = $db->escape_string('%'.$literal.'%');
+            $columns = array('redirects' => '', 'notfound' => 'path', 'indexnow' => 'url');
             $parts[] = $this->type === 'redirects'
                 ? "(source_path LIKE '{$pattern}' ESCAPE '!' OR target_url LIKE '{$pattern}' ESCAPE '!')"
-                : "path LIKE '{$pattern}' ESCAPE '!'";
+                : $columns[$this->type]." LIKE '{$pattern}' ESCAPE '!'";
+        }
+        if($this->type === 'indexnow')
+        {
+            // The worker selects rows with both timestamps due; mirror that split.
+            $now = $this->now();
+            if($this->state === 'due')
+            {
+                $parts[] = "available_at<={$now} AND retry_not_before<={$now}";
+            }
+            elseif($this->state === 'retry')
+            {
+                $parts[] = "retry_not_before>{$now}";
+            }
+            elseif($this->state === 'scheduled')
+            {
+                $parts[] = "available_at>{$now} AND retry_not_before<={$now}";
+            }
+            if($this->event !== '')
+            {
+                $parts[] = "event_type='".($this->event === 'removed' ? 'removed' : 'current')."'";
+            }
         }
         if($this->type === 'redirects')
         {
@@ -93,7 +135,8 @@ class VonSEO_AdminList
     public function rows()
     {
         global $db;
-        $table = $this->type === 'redirects' ? 'vonseo_redirects' : 'vonseo_404_log';
+        $tables = array('redirects' => 'vonseo_redirects', 'notfound' => 'vonseo_404_log', 'indexnow' => 'vonseo_indexnow_queue');
+        $table = $tables[$this->type];
         if(!$db->table_exists($table))
         {
             $this->page = 1;
@@ -108,10 +151,15 @@ class VonSEO_AdminList
         {
             return array();
         }
-        $columns = $this->type === 'redirects'
-            ? array('newest' => 'rid', 'path' => 'source_path', 'hits' => 'hits', 'last_hit' => 'last_hit')
-            : array('hits' => 'hits', 'path' => 'path', 'first_seen' => 'first_seen', 'last_seen' => 'last_seen');
-        $tie = $this->type === 'redirects' ? 'rid' : 'path_hash';
+        $columnSets = array(
+            'redirects' => array('newest' => 'rid', 'path' => 'source_path', 'hits' => 'hits', 'last_hit' => 'last_hit'),
+            'notfound' => array('hits' => 'hits', 'path' => 'path', 'first_seen' => 'first_seen', 'last_seen' => 'last_seen'),
+            'indexnow' => array('next' => 'GREATEST(available_at,retry_not_before)', 'attempts' => 'attempts',
+                'updated' => 'updated_at', 'path' => 'url')
+        );
+        $columns = $columnSets[$this->type];
+        $ties = array('redirects' => 'rid', 'notfound' => 'path_hash', 'indexnow' => 'qid');
+        $tie = $ties[$this->type];
         $dir = strtoupper($this->direction);
         $query = $db->simple_select($table, '*', $where, array(
             'order_by' => $columns[$this->sort].' '.$dir.', '.$tie,
@@ -139,6 +187,11 @@ class VonSEO_AdminList
         {
             $params['status'] = $this->status;
             $params['enabled'] = $this->enabled;
+        }
+        elseif($this->type === 'indexnow')
+        {
+            $params['state'] = $this->state;
+            $params['event'] = $this->event;
         }
         return 'index.php?'.http_build_query(array_merge($params, $changes), '', '&', PHP_QUERY_RFC3986);
     }
@@ -168,6 +221,13 @@ class VonSEO_AdminList
         {
             $html .= $this->select('status', 'Response', array('' => 'All responses', '301' => '301', '302' => '302', '307' => '307', '308' => '308', '410' => '410'), $this->status);
             $html .= $this->select('enabled', 'State', array('' => 'All rules', '1' => 'Enabled', '0' => 'Disabled'), $this->enabled);
+        }
+        elseif($this->type === 'indexnow')
+        {
+            $html .= $this->select('state', 'State', array('' => 'All queued URLs', 'due' => 'Due now',
+                'retry' => 'Waiting to retry', 'scheduled' => 'Scheduled'), $this->state);
+            $html .= $this->select('event', 'Notification', array('' => 'All notifications', 'current' => 'Updated content',
+                'removed' => 'Removed content'), $this->event);
         }
         $html .= $this->select('sort', 'Sort by', $this->sorts(), $this->sort)
             .$this->select('direction', 'Order', array('desc' => 'Descending', 'asc' => 'Ascending'), $this->direction)
