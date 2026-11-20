@@ -2,11 +2,12 @@
 
 ## 1.1.3 - 2026-11-20
 
+- Add an ACP **IndexNow Queue** tab. It lists each queued URL with notification type, thread ID, state (due now, waiting to retry, or scheduled by cooldown), attempts and last error, with URL search, state/type filters, sorting and 50-row pagination. **Retry now**, **Retry all waiting** and **Remove** are confirmation POST actions with post-key checks and admin logging; single-row actions match queue ID and generation, retries keep the attempt count, and delivery still re-checks public eligibility. Uses the base VonSEO permission; no schema change.
 - Reject new `<`, `>`, `"` and backtick characters in Site Details Board Name, Board URL, Homepage Name and Homepage URL. MyBB templates print these settings unescaped, so the narrower "Site Details" ACP permission could previously plant attribute or tag markup on public pages. An unchanged existing value set through MyBB's own settings is retained so other fields can still be saved.
 - Store Board and Homepage names exactly as typed. Site Details no longer runs them through the post-snippet filter, which stripped `[TAG]` text and URLs and decoded entities into live markup; the form also prefills the real stored values, so saving only the description no longer rewrites the names. Titles, `og:site_name` and schema names keep brackets and URLs.
 - Keep `[TAG]` prefixes and URLs in thread, announcement, forum, calendar and event titles, usernames and SEO title overrides. These labels previously went through the post-snippet filter, so `[SOLVED] Install guide` became `Install guide` in `<title>`, Open Graph/Twitter titles and schema. Descriptions keep the snippet filter, and keyword URL slugs are deliberately unchanged so published URLs do not move.
 - Page the thread sitemap by fixed thread-ID ranges instead of deep `OFFSET` queries. Page N lists public threads with IDs from (N-1)×chunk+1 to N×chunk, read through a bounded primary-key range, so a late page no longer scans every earlier row and page contents no longer shift when older threads are hidden or deleted. The index lists only non-empty ranges from one aggregate query cached for ten minutes; an empty or unlisted range returns 404. Page numbers can therefore skip values. Eligibility, URLs and the chunk-size setting are unchanged.
-- Add Site Details markup, bracket/URL preservation, legacy-value and prefill regressions, title/name label regressions and thread-range sitemap regressions.
+- Add Site Details markup, bracket/URL preservation, legacy-value and prefill regressions, title/name label regressions, thread-range sitemap regressions and IndexNow Queue list/action regressions.
 
 ## 1.1.2 - 2026-11-11
 

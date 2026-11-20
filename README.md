@@ -2,7 +2,7 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Stable version: **1.1.3**. This security and maintenance release closes a Site Details markup-injection path, keeps full titles and names (including `[TAG]` prefixes) in metadata, and pages the thread sitemap by thread-ID range instead of deep offsets, while retaining the forum/thread SEO controls and illustrative previews introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Stable version: **1.1.3**. This security and maintenance release adds an ACP **IndexNow Queue** tab with retry and remove controls, closes a Site Details markup-injection path, keeps full titles and names (including `[TAG]` prefixes) in metadata, and pages the thread sitemap by thread-ID range instead of deep offsets, while retaining the forum/thread SEO controls and illustrative previews introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
@@ -68,7 +68,7 @@ extras/
 3. Confirm `inc/plugins/vonseo.php` exists.
 4. Admin CP → Configuration → Plugins.
 5. Install & Activate **VonSEO for MyBB**.
-6. Admin CP → Configuration → **VonSEO** for the overview, **How to use** guide, redirects and the 404 monitor.
+6. Admin CP → Configuration → **VonSEO** for the overview, **How to use** guide, redirects, the 404 monitor and the IndexNow queue.
 7. Admin CP → Configuration → Settings → **VonSEO** for engine settings.
 
 Uninstalling through MyBB removes VonSEO's settings, SEO override/redirect/404/IndexNow tables, queue task and task logs; deactivation keeps that data. Uninstall does not delete uploaded plugin files or server rewrite rules. Back up rules and overrides before uninstalling if you may need them again.
@@ -410,6 +410,16 @@ New public threads are queued immediately. Public replies and edits use a five-m
 
 At delivery time, the MyBB task rechecks guest visibility and resolves the current canonical slug. Each queue update has a generation token to protect fresh concurrent work. Missing/invalid configuration and HTTP 400/403/422 retain the queue without consuming retries; HTTP 429 honours `Retry-After`; timeouts and HTTP 5xx use bounded exponential retries. The ACP reports **Ready**, **Config Error**, **Rate Limited** or **Remote Error**, queue depth, last success and the human-readable last error. A protected POST action can replace the IndexNow key; the dynamic verification endpoint immediately serves only the new key, so there is no old key file to delete.
 
+### IndexNow Queue tab (1.1.3)
+
+Admin CP → Configuration → VonSEO → **IndexNow Queue** lists every queued URL with its notification type (updated content or removal notice), thread ID, state (**Due now**, **Waiting to retry** after a failed delivery, or **Scheduled** by the reply/edit cooldown), attempt count and last error. Filter by state, notification type or URL, and sort by next attempt, attempts, last change or URL.
+
+- **Retry now** makes one URL due immediately. Its attempt count is kept, so the 10-attempt limit still applies.
+- **Retry all waiting** clears the retry wait for every URL that failed delivery. Use it after fixing the cause, such as a key or rate-limit problem. Reply/edit cooldowns are not changed.
+- **Remove** deletes one queued URL. New activity on that thread can queue it again.
+
+Each action needs a confirmation POST with MyBB's post key and is recorded in the admin log. Rows are addressed by queue ID and generation, so a newer queue entry for the same thread is never retried or removed by an older page. Retrying does not bypass delivery checks: the task still re-checks that each thread is public and the board is Guest-accessible, and still sends at most 25 URLs per run. The tab uses the base **VonSEO** permission. No schema change is required.
+
 The Overview also includes one compact **Site Details** form. Board Name, Board URL, Homepage Name and Homepage URL read and write MyBB's original settings directly; VonSEO does not create duplicate identity settings. Homepage Name/URL provide the Organization publisher identity in JSON-LD, with a safe fallback to Board Name/URL. SEO Description remains VonSEO-specific because core MyBB has no standard description field, but it is edited only in Site Details and does not appear again under Advanced Settings. The homepage SEO title always follows MyBB's Board Name. Email, contact, cookie, address and fax settings are intentionally excluded.
 
 ### IndexNow setup
@@ -460,10 +470,11 @@ Submit the sitemap URL that is actually reachable on the public site. With no cl
 - one-click “Create Redirect” from a recorded 404;
 - direct links to crawler endpoints;
 - basic `.htaccess` route detection;
+- an IndexNow Queue tab with per-URL state, attempts and last error, plus protected Retry now, Retry all waiting and Remove actions;
 - database migration and IndexNow queue diagnostics, plus **Needs attention** messages for reported issues and a separate informational host-root robots reminder on subfolder boards;
 - protected one-click actions to use MyBB's board identity directly and to replace the IndexNow verification key.
 
-MyBB administrator permissions are split by responsibility. The base **VonSEO** permission opens health, redirects and the 404 monitor. Changing Site Details or rotating the IndexNow key additionally requires **Can change VonSEO Site Details and rotate the IndexNow key?** or MyBB's core settings permission. After upgrading, grant the additional permission only to administrators who should be able to change the board identity and crawler key; super administrators continue to have access automatically.
+MyBB administrator permissions are split by responsibility. The base **VonSEO** permission opens health, redirects, the 404 monitor and the IndexNow Queue tab. Changing Site Details or rotating the IndexNow key additionally requires **Can change VonSEO Site Details and rotate the IndexNow key?** or MyBB's core settings permission. After upgrading, grant the additional permission only to administrators who should be able to change the board identity and crawler key; super administrators continue to have access automatically.
 
 ## Indexing defaults
 
@@ -533,7 +544,7 @@ Test the native `misc.php?action=...` endpoint first. If it works, a clean-alias
 
 ### IndexNow queue does not empty
 
-Read the Overview state and last error. Keep the queue intact while fixing a missing key, rate limit or remote failure. Confirm the MyBB task is enabled and has opportunities to run. Do not repeatedly rotate a valid key to clear a remote error.
+Read the Overview state and last error, then open **IndexNow Queue** to see which URLs are waiting and why. Keep the queue intact while fixing a missing key, rate limit or remote failure; after the fix, use **Retry all waiting** instead of removing entries. Confirm the MyBB task is enabled and has opportunities to run. Do not repeatedly rotate a valid key to clear a remote error.
 
 ### 404 Monitor shows a URL that was opened for testing
 

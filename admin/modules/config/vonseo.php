@@ -181,6 +181,11 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-notfound td:nth-child(3):before{content:"First Seen"}
 .vs-table-notfound td:nth-child(4):before{content:"Last Seen"}
 .vs-table-notfound td:nth-child(5):before{content:"Controls"}
+.vs-table-indexnow td:nth-child(1):before{content:"URL"}
+.vs-table-indexnow td:nth-child(2):before{content:"State"}
+.vs-table-indexnow td:nth-child(3):before{content:"Attempts"}
+.vs-table-indexnow td:nth-child(4):before{content:"Last error"}
+.vs-table-indexnow td:nth-child(5):before{content:"Controls"}
 .vs-table-inspector td:nth-child(1):before{content:"Step"}
 .vs-table-inspector td:nth-child(2):before{content:"Source"}
 .vs-table-inspector td:nth-child(3):before{content:"Response / State"}
@@ -225,6 +230,11 @@ function vonseo_admin_tabs($active)
             'title' => '404 Monitor',
             'link' => 'index.php?module=config-vonseo&amp;action=notfound',
             'description' => 'Review recurring missing public URLs and create fixes.'
+        ),
+        'indexnow' => array(
+            'title' => 'IndexNow Queue',
+            'link' => 'index.php?module=config-vonseo&amp;action=indexnow',
+            'description' => 'Review queued IndexNow notifications, retry them now or remove them.'
         )
     );
 
@@ -578,6 +588,68 @@ if($action === 'notfound_clear_all')
     $page->output_confirm_action('index.php?module=config-vonseo&action=notfound_clear_all', 'Clear all VonSEO 404 monitor entries?');
 }
 
+if(in_array($action, array('indexnow_retry', 'indexnow_remove'), true))
+{
+    // A row is addressed by qid and its generation, so a newer content
+    // generation admitted after the page loaded is never retried or removed.
+    $qid = $mybb->get_input('qid', MyBB::INPUT_INT);
+    $generation = (string)$mybb->get_input('generation');
+    if($qid <= 0 || !preg_match('/^[a-f0-9]{32}$/', $generation) || !$db->table_exists('vonseo_indexnow_queue'))
+    {
+        flash_message('That IndexNow queue entry is no longer available.', 'error');
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+    $queueCondition = "qid='{$qid}' AND generation='".$db->escape_string($generation)."'";
+
+    if($mybb->request_method === 'post')
+    {
+        verify_post_check($mybb->get_input('my_post_key'));
+        if($action === 'indexnow_retry')
+        {
+            // Attempts are kept, so the worker's retry limit still applies.
+            $db->update_query('vonseo_indexnow_queue', array('available_at' => (int)TIME_NOW,
+                'retry_not_before' => 0, 'updated_at' => (int)TIME_NOW), $queueCondition);
+            log_admin_action('vonseo_indexnow_retry', $qid);
+            flash_message('The queued URL is due now. The next IndexNow task run will re-check that it is still public before sending it.', 'success');
+        }
+        else
+        {
+            $db->delete_query('vonseo_indexnow_queue', $queueCondition);
+            if(class_exists('VonSEO_State'))
+            {
+                VonSEO_State::refreshQueueDepth();
+            }
+            log_admin_action('vonseo_indexnow_remove', $qid);
+            flash_message('The queued URL was removed. New activity on that thread can queue it again.', 'success');
+        }
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+
+    $confirmUrl = 'index.php?module=config-vonseo&action='.$action.'&qid='.$qid.'&generation='.$generation;
+    $page->output_confirm_action($confirmUrl, $action === 'indexnow_retry'
+        ? 'Make this queued IndexNow URL due now? Its attempt count is kept.'
+        : 'Remove this URL from the IndexNow queue? It will not be sent unless new activity queues it again.');
+}
+
+if($action === 'indexnow_retry_all')
+{
+    if($mybb->request_method === 'post')
+    {
+        verify_post_check($mybb->get_input('my_post_key'));
+        if($db->table_exists('vonseo_indexnow_queue'))
+        {
+            $db->update_query('vonseo_indexnow_queue', array('retry_not_before' => 0, 'updated_at' => (int)TIME_NOW),
+                "retry_not_before>'".(int)TIME_NOW."'");
+        }
+        log_admin_action('vonseo_indexnow_retry_all');
+        flash_message('Retry waits were cleared. Scheduled cooldowns are unchanged, and the task still sends at most 25 URLs per run.', 'success');
+        admin_redirect('index.php?module=config-vonseo&action=indexnow');
+    }
+
+    $page->output_confirm_action('index.php?module=config-vonseo&action=indexnow_retry_all',
+        'Clear the retry wait for every URL waiting after a failed delivery? Use this after fixing the cause, for example a key or rate-limit problem.');
+}
+
 if($action === 'redirect_add' || $action === 'redirect_edit')
 {
     $rid = $mybb->get_input('rid', MyBB::INPUT_INT);
@@ -899,6 +971,106 @@ if($action === 'notfound')
 
     echo '<div class="vs-table-wrap vs-table-cards vs-table-notfound">';
     $table->output('Missing paths');
+    echo '</div>';
+    echo $list->pagination();
+    echo '</div>';
+    $page->output_footer();
+    exit;
+}
+
+if($action === 'indexnow')
+{
+    $list = new VonSEO_AdminList('indexnow', $mybb->input);
+    $listRows = $list->rows();
+    $queueNow = (int)TIME_NOW;
+    $queueSummary = array('total' => 0, 'due' => 0, 'retry' => 0, 'removed' => 0);
+    if($db->table_exists('vonseo_indexnow_queue'))
+    {
+        $summaryQuery = $db->simple_select('vonseo_indexnow_queue',
+            "COUNT(qid) AS total, SUM(available_at<={$queueNow} AND retry_not_before<={$queueNow}) AS due, "
+            ."SUM(retry_not_before>{$queueNow}) AS retry, SUM(event_type='removed') AS removed");
+        $summaryRow = $db->fetch_array($summaryQuery);
+        foreach($queueSummary as $summaryKey => $unused)
+        {
+            $queueSummary[$summaryKey] = is_array($summaryRow) && isset($summaryRow[$summaryKey]) ? (int)$summaryRow[$summaryKey] : 0;
+        }
+    }
+
+    $page->output_header('VonSEO - IndexNow Queue');
+    vonseo_admin_tabs('indexnow');
+
+    echo $vonseoAdminCss;
+    echo '<div class="vs-page">';
+    echo '<div class="vs-page-header">';
+    echo '<div><span class="vs-eyebrow">Crawler notifications</span><h2>IndexNow queue</h2>';
+    echo '<p>URLs waiting for the background IndexNow task. Each run sends at most 25 due URLs and re-checks that every thread is still public first.</p></div>';
+    if($queueSummary['retry'] > 0)
+    {
+        echo '<div class="vs-actions"><a class="button" href="index.php?module=config-vonseo&amp;action=indexnow_retry_all">Retry all waiting</a></div>';
+    }
+    echo '</div>';
+    if(empty($mybb->settings['vonseo_enabled']) || empty($mybb->settings['vonseo_indexnow_enabled']))
+    {
+        echo '<div class="vs-notice is-warning">IndexNow is disabled in VonSEO settings. Queued URLs are kept, but nothing is sent until the SEO engine and IndexNow are enabled.</div>';
+    }
+    echo '<div class="vs-summary">';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['total']).'</strong><span>Queued URLs</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['due']).'</strong><span>Due now</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['retry']).'</strong><span>Waiting to retry</span></div>';
+    echo '<div class="vs-summary-card"><strong>'.my_number_format($queueSummary['removed']).'</strong><span>Removal notices</span></div>';
+    echo '</div>';
+    echo '<div class="vs-notice">Retry now keeps the attempt count; a URL is dropped after '.(class_exists('VonSEO_IndexNow') ? (int)VonSEO_IndexNow::MAX_ATTEMPTS : 10)
+        .' failed attempts. Removing an entry does not stop the thread from being queued again by new activity. Delivery does not guarantee indexing.</div>';
+
+    echo $list->filters();
+    $table = new Table;
+    $table->construct_header($list->heading('URL', 'path'));
+    $table->construct_header($list->heading('State', 'next'), array('width' => 190));
+    $table->construct_header($list->heading('Attempts', 'attempts'), array('class' => 'align_center', 'width' => 90));
+    $table->construct_header('Last error');
+    $table->construct_header('Controls', array('class' => 'align_center', 'width' => 150));
+
+    foreach($listRows as $row)
+    {
+        $availableAt = (int)$row['available_at'];
+        $retryAt = (int)$row['retry_not_before'];
+        if($retryAt > $queueNow)
+        {
+            $state = '<span class="vs-status is-warn">Waiting to retry</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $retryAt)).'</span>';
+        }
+        elseif($availableAt > $queueNow)
+        {
+            $state = '<span class="vs-status is-neutral">Scheduled</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $availableAt)).'</span>';
+        }
+        else
+        {
+            $state = '<span class="vs-status is-on">Due now</span>';
+        }
+        $kind = isset($row['event_type']) && $row['event_type'] === 'removed' ? 'Removal notice' : 'Updated content';
+        $table->construct_cell('<span class="vs-code">'.htmlspecialchars_uni($row['url']).'</span><br /><span class="vs-subtle">'
+            .htmlspecialchars_uni($kind).' &middot; thread #'.(int)$row['tid'].'</span>');
+        $table->construct_cell($state);
+        $table->construct_cell(my_number_format((int)$row['attempts']), array('class' => 'align_center'));
+        $table->construct_cell($row['last_error'] !== '' ? htmlspecialchars_uni($row['last_error']) : '<span class="vs-subtle">None</span>');
+        $rowKey = '&amp;qid='.(int)$row['qid'].'&amp;generation='.htmlspecialchars_uni($row['generation']);
+        $table->construct_cell('<span class="vs-row-actions">'
+            .'<a href="index.php?module=config-vonseo&amp;action=indexnow_retry'.$rowKey.'">Retry now</a>'
+            .'<a class="vs-delete" href="index.php?module=config-vonseo&amp;action=indexnow_remove'.$rowKey.'">Remove</a></span>',
+            array('class' => 'align_center'));
+        $table->construct_row();
+    }
+
+    if($table->num_rows() === 0)
+    {
+        $empty = $queueSummary['total'] > 0
+            ? 'No queued URLs match these filters. Try another URL or reset the filters.'
+            : 'The IndexNow queue is empty. New, edited and moderated public threads appear here until the task sends them.';
+        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 5));
+        $table->construct_row();
+    }
+
+    echo '<div class="vs-table-wrap vs-table-cards vs-table-indexnow">';
+    $table->output('Queued notifications');
     echo '</div>';
     echo $list->pagination();
     echo '</div>';
@@ -1282,6 +1454,7 @@ if($indexNowWorkerStatus === 'config_error')
 {
     $indexNowDetail .= ' Worker delivery is paused until configuration is fixed; the queue is retained.';
 }
+$indexNowDetail .= ' <a href="index.php?module=config-vonseo&amp;action=indexnow">Review queue</a>';
 $health->construct_cell($indexNowDetail);
 $health->construct_row();
 
