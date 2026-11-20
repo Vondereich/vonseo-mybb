@@ -2,14 +2,14 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Stable version: **1.1.2**. This maintenance release improves ACP validation, mobile controls and deployment guidance while retaining the forum/thread SEO controls and illustrative previews introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Stable version: **1.1.3**. This security and maintenance release closes a Site Details markup-injection path, keeps full titles and names (including `[TAG]` prefixes) in metadata, and pages the thread sitemap by thread-ID range instead of deep offsets, while retaining the forum/thread SEO controls and illustrative previews introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
 ## Requirements
 
 - MyBB 1.8.x
-- PHP 7.1 or newer for plugin syntax. The 1.1.0 Ubuntu CI run covered plugin lint/self-contained tests on PHP 7.1–8.5. Maintenance build 1.1.2 is checked locally on PHP 8.3–8.5; it has not rerun the full Linux/older-PHP matrix. The installed local board is exercised on PHP 8.4. These checks are not full installed MyBB HTTP tests on every runtime. MyBB's own PHP minimum is broader than this plugin's.
+- PHP 7.1 or newer for plugin syntax. The 1.1.0 Ubuntu CI run covered plugin lint/self-contained tests on PHP 7.1–8.5. Maintenance build 1.1.3 is checked locally on PHP 8.3–8.5 with the self-contained regressions, and its new thread-sitemap SQL was run against MySQL 8.4; it has not rerun the full Linux/older-PHP or MariaDB matrix, or an installed-board pass. Earlier 1.1.x builds exercised an installed local board on PHP 8.4. These checks are not full installed MyBB HTTP tests on every runtime. MyBB's own PHP minimum is broader than this plugin's.
 - MySQL or MariaDB. VonSEO uses MySQL-family upserts plus advisory locking for bounded 404 logging and its durable IndexNow queue.
 - No MyBB core edits
 - Core metadata and native crawler endpoints are web-server independent. Optional Apache-style and Nginx rewrite examples are supplied in `extras/`; merge the matching example into your existing server configuration and test it on staging.
@@ -110,14 +110,15 @@ MyBB's Guest access restrictions take precedence over SEO settings. IndexNow pau
 
 Upgrade from 1.0.8 or a 1.1.0 beta: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. SEO noindex is not privacy protection; use MyBB permissions to restrict access. Uninstall permanently removes the override table.
 
-### Updating an existing 1.1.x installation to 1.1.2
+### Updating an existing 1.1.x installation to 1.1.3
 
 1. Back up the forum files/database and any customized plugin files.
 2. Replace the package's `admin/` and `inc/` files in the MyBB installation directory. If ACP is renamed, use its actual directory. Do not upload `extras/` or replace an existing `.htaccess` with an example file.
 3. No new migration or uninstall/reinstall is required from a working schema 6 installation. Keep the plugin active and its existing settings, queue, overrides and server rules. If Overview reports an incomplete schema, follow its deactivate/reactivate instructions without uninstalling.
-4. Reload ACP and confirm version 1.1.2. Check Site Details, SEO Controls and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
+4. Reload ACP and confirm version 1.1.3. Check Site Details, SEO Controls and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
+5. Open the sitemap index once. Thread sitemap pages are now fixed thread-ID ranges, so their page numbers may skip values; keep submitting the index URL, not individual `type=threads` page URLs.
 
-This update does not change canonical URLs, keyword settings, sitemap policy or IndexNow delivery. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
+This update does not change canonical URLs, keyword slugs, keyword settings, sitemap eligibility or IndexNow delivery. Titles and social/schema names now keep `[TAG]` prefixes and URLs. Site Details rejects new `<`, `>`, `"` and backtick characters in the Board/Homepage name and URL fields; an existing value set through MyBB's own settings is kept while unchanged. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.2 or 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
 
 ## Apache setup: using the `extras` files
 
@@ -556,7 +557,7 @@ Correct MyBB's **Board URL** in Site Details. VonSEO deliberately trusts that co
 
 ## Scope and limitations
 
-Version 1.1.2 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
+Version 1.1.3 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
 
 ## Source checks and packaging
 
@@ -564,4 +565,4 @@ From a GitHub source checkout, run `php scripts/check.php` to check the public f
 
 GitHub Actions runs these source checks on the configured PHP matrix and separately builds the upload ZIP. These jobs do not run the full regression suite or prove installed-forum behavior; verify your own staging deployment using the checklist above.
 
-On Windows with PowerShell, run `./scripts/create_release.ps1 -Version 1.1.2` to build a byte-verified upload ZIP from the explicit release manifest. Old release ZIPs in the project root are removed after verification succeeds. The upload ZIP excludes build tools, internal documents, test fixtures and local backups.
+On Windows with PowerShell, run `./scripts/create_release.ps1 -Version 1.1.3` to build a byte-verified upload ZIP from the explicit release manifest. Old release ZIPs in the project root are removed after verification succeeds. The upload ZIP excludes build tools, internal documents, test fixtures and local backups.

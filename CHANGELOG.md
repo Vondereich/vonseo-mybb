@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.3 - 2026-11-20
 
 - Reject new `<`, `>`, `"` and backtick characters in Site Details Board Name, Board URL, Homepage Name and Homepage URL. MyBB templates print these settings unescaped, so the narrower "Site Details" ACP permission could previously plant attribute or tag markup on public pages. An unchanged existing value set through MyBB's own settings is retained so other fields can still be saved.
 - Store Board and Homepage names exactly as typed. Site Details no longer runs them through the post-snippet filter, which stripped `[TAG]` text and URLs and decoded entities into live markup; the form also prefills the real stored values, so saving only the description no longer rewrites the names. Titles, `og:site_name` and schema names keep brackets and URLs.
