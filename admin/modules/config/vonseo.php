@@ -250,6 +250,23 @@ function vonseo_admin_tabs($active)
     $page->output_nav_tabs($tabs, $active);
 }
 
+/**
+ * MyBB's output_confirm_action() puts "Yes" and "No" in ONE POST form that
+ * also carries my_post_key, so "No" passes the token check. Core modules
+ * test for it first; without this, clicking "No" would run the action.
+ *
+ * @param string $returnUrl
+ * @return void
+ */
+function vonseo_admin_confirm_declined($returnUrl)
+{
+    global $mybb;
+    if($mybb->request_method === 'post' && $mybb->get_input('no'))
+    {
+        admin_redirect($returnUrl);
+    }
+}
+
 /** @return array */
 function vonseo_admin_server_help()
 {
@@ -292,7 +309,9 @@ if($action === 'site_details_save')
     $siteUrl = rtrim(trim((string)$mybb->get_input('site_url')), '/');
     $homepageName = trim((string)$mybb->get_input('homepage_name'));
     $homepageUrl = trim((string)$mybb->get_input('homepage_url'));
-    $siteDescription = trim(VonSEO_Utils::plainText($mybb->get_input('site_description')));
+    // Stored as typed: every output already snippet-filters it once through
+    // truncateDescription(). Filtering here too re-decoded the text on each save.
+    $siteDescription = trim((string)$mybb->get_input('site_description'));
 
     // MyBB templates print these settings unescaped. This narrower permission
     // must not introduce markup characters; an unchanged existing value set
@@ -303,8 +322,24 @@ if($action === 'site_details_save')
         'homepage_name' => isset($mybb->settings['homename']) ? trim((string)$mybb->settings['homename']) : '',
         'homepage_url' => isset($mybb->settings['homeurl']) ? trim((string)$mybb->settings['homeurl']) : ''
     );
-    $introducesMarkup = static function($value, $field) use ($currentIdentity) {
-        return VonSEO_Utils::hasMarkupCharacters($value) && $value !== $currentIdentity[$field];
+    // A stored value that is not valid UTF-8 cannot round-trip through an HTML
+    // form: it would post back empty and be silently erased. Such a field is
+    // shown as a notice instead of an input and is always kept as stored.
+    if(preg_match('//u', $currentIdentity['site_name']) !== 1) { $siteName = $currentIdentity['site_name']; }
+    if(preg_match('//u', $currentIdentity['site_url']) !== 1) { $siteUrl = $currentIdentity['site_url']; }
+    if(preg_match('//u', $currentIdentity['homepage_name']) !== 1) { $homepageName = $currentIdentity['homepage_name']; }
+    if(preg_match('//u', $currentIdentity['homepage_url']) !== 1) { $homepageUrl = $currentIdentity['homepage_url']; }
+    $currentDescription = isset($mybb->settings['vonseo_site_description']) ? trim((string)$mybb->settings['vonseo_site_description']) : '';
+    if(preg_match('//u', $currentDescription) !== 1) { $siteDescription = $currentDescription; }
+    // A value equal to the current MyBB setting was set through MyBB itself;
+    // keep it as-is so it never blocks saving the other fields. The form
+    // prefill round-trips it exactly (VonSEO_Utils::h(), not MyBB's
+    // htmlspecialchars_uni(), which leaves numeric entities unescaped).
+    $unchanged = static function($value, $field) use ($currentIdentity) {
+        return $value === $currentIdentity[$field];
+    };
+    $introducesMarkup = static function($value, $field) use ($unchanged) {
+        return VonSEO_Utils::hasMarkupCharacters($value) && !$unchanged($value, $field);
     };
     $invalidName = static function($value) {
         return preg_match('//u', $value) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1;
@@ -321,7 +356,7 @@ if($action === 'site_details_save')
         empty($homepageUrlParts['user']) && empty($homepageUrlParts['pass']) &&
         !preg_match('/[\x00-\x20\x7F]/', $homepageUrl) && strpos($homepageUrl, '\\') === false);
 
-    if($siteName === '' || $invalidName($siteName) || VonSEO_Utils::strlen($siteName) > 75)
+    if($siteName === '' || (!$unchanged($siteName, 'site_name') && ($invalidName($siteName) || VonSEO_Utils::strlen($siteName) > 75)))
     {
         $siteDetailsErrors['site_name'] = 'Board Name is required, must be valid text without control characters and must not exceed 75 characters.';
     }
@@ -329,7 +364,7 @@ if($action === 'site_details_save')
     {
         $siteDetailsErrors['site_name'] = 'Board Name cannot contain <, >, " or ` characters.';
     }
-    if(!$siteUrlValid)
+    if(!$siteUrlValid && !$unchanged($siteUrl, 'site_url'))
     {
         $siteDetailsErrors['site_url'] = 'Board URL must be an absolute HTTP or HTTPS URL without credentials, a query string or fragment.';
     }
@@ -341,7 +376,7 @@ if($action === 'site_details_save')
     {
         $siteDetailsErrors['site_url'] = 'Changing the Board URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
     }
-    if($invalidName($homepageName) || VonSEO_Utils::strlen($homepageName) > 120)
+    if(!$unchanged($homepageName, 'homepage_name') && ($invalidName($homepageName) || VonSEO_Utils::strlen($homepageName) > 120))
     {
         $siteDetailsErrors['homepage_name'] = 'Homepage Name must be valid text without control characters and must not exceed 120 characters.';
     }
@@ -349,7 +384,7 @@ if($action === 'site_details_save')
     {
         $siteDetailsErrors['homepage_name'] = 'Homepage Name cannot contain <, >, " or ` characters.';
     }
-    if(!$homepageUrlValid)
+    if(!$homepageUrlValid && !$unchanged($homepageUrl, 'homepage_url'))
     {
         $siteDetailsErrors['homepage_url'] = 'Homepage URL must be blank or an absolute HTTP or HTTPS URL without credentials.';
     }
@@ -361,9 +396,10 @@ if($action === 'site_details_save')
     {
         $siteDetailsErrors['homepage_url'] = 'Changing the Homepage URL requires MyBB\'s Settings permission. Leave it unchanged to save the other fields.';
     }
-    if(VonSEO_Utils::strlen($siteDescription) > 320)
+    if($siteDescription !== $currentDescription && (preg_match('//u', $siteDescription) !== 1 ||
+        preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $siteDescription) === 1 || VonSEO_Utils::strlen($siteDescription) > 320))
     {
-        $siteDetailsErrors['site_description'] = 'SEO Description must not exceed 320 characters.';
+        $siteDetailsErrors['site_description'] = 'SEO Description must be valid text without control characters and must not exceed 320 characters.';
     }
 
     if($siteDetailsErrors)
@@ -456,6 +492,7 @@ if($action === 'redirect_delete')
         admin_redirect('index.php?module=config-vonseo&action=redirects');
     }
 
+    vonseo_admin_confirm_declined('index.php?module=config-vonseo&action=redirects');
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
@@ -566,6 +603,7 @@ if($action === 'notfound_clear')
         admin_redirect('index.php?module=config-vonseo&action=notfound');
     }
 
+    vonseo_admin_confirm_declined('index.php?module=config-vonseo&action=notfound');
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
@@ -584,6 +622,7 @@ if($action === 'notfound_clear')
 
 if($action === 'notfound_clear_all')
 {
+    vonseo_admin_confirm_declined('index.php?module=config-vonseo&action=notfound');
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
@@ -613,6 +652,7 @@ if(in_array($action, array('indexnow_retry', 'indexnow_remove'), true))
     }
     $queueCondition = "qid='{$qid}' AND generation='".$db->escape_string($generation)."'";
 
+    vonseo_admin_confirm_declined('index.php?module=config-vonseo&action=indexnow');
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
@@ -653,6 +693,7 @@ if(in_array($action, array('indexnow_retry', 'indexnow_remove'), true))
 
 if($action === 'indexnow_retry_all')
 {
+    vonseo_admin_confirm_declined('index.php?module=config-vonseo&action=indexnow');
     if($mybb->request_method === 'post')
     {
         verify_post_check($mybb->get_input('my_post_key'));
@@ -1299,13 +1340,19 @@ foreach($siteDetailRows as $siteDetailRow)
     $fieldErrorAttributes = isset($siteDetailsErrors[$siteDetailRow[1]])
         ? ' aria-invalid="true" aria-describedby="vs-site-details-validation"' : '';
     $siteDetails->construct_cell('<label for="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'"><strong>'.htmlspecialchars_uni($siteDetailRow[0]).'</strong></label><br /><span class="vs-muted">'.htmlspecialchars_uni($siteDetailRow[3]).'</span>');
-    if(!$canManageSiteSettings)
+    if(preg_match('//u', (string)$siteDetailRow[2]) !== 1)
     {
-        $field = '<span class="vs-code">'.htmlspecialchars_uni($siteDetailRow[2] !== '' ? $siteDetailRow[2] : 'Not set').'</span>';
+        // Not representable in an HTML form; the save handler keeps it as stored.
+        $field = '<span class="vs-subtle">The stored value is not valid UTF-8 text, so it cannot be edited here. '
+            .'Correct it in MyBB\'s settings; saving this form keeps it unchanged.</span>';
+    }
+    elseif(!$canManageSiteSettings)
+    {
+        $field = '<span class="vs-code">'.VonSEO_Utils::h($siteDetailRow[2] !== '' ? $siteDetailRow[2] : 'Not set').'</span>';
     }
     elseif($siteDetailRow[1] === 'site_description')
     {
-        $field = '<textarea class="text_input" id="vonseo_site_description" name="site_description" rows="3" maxlength="320"'.$fieldErrorAttributes.' style="width:98%">'.htmlspecialchars_uni($siteDetailRow[2]).'</textarea>';
+        $field = '<textarea class="text_input" id="vonseo_site_description" name="site_description" rows="3" maxlength="320"'.$fieldErrorAttributes.' style="width:98%">'.VonSEO_Utils::h($siteDetailRow[2]).'</textarea>';
     }
     else
     {
@@ -1313,7 +1360,7 @@ foreach($siteDetailRows as $siteDetailRow)
         // The server also rejects URL changes without Settings permission;
         // readonly only explains it. The unchanged value is still submitted.
         $urlLocked = !$canChangeIdentityUrls && in_array($siteDetailRow[1], array('site_url', 'homepage_url'), true);
-        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.htmlspecialchars_uni($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.($urlLocked ? ' readonly="readonly"' : '').' style="width:98%" />';
+        $field = '<input class="text_input" id="vonseo_'.htmlspecialchars_uni($siteDetailRow[1]).'" name="'.htmlspecialchars_uni($siteDetailRow[1]).'" type="text" value="'.VonSEO_Utils::h($siteDetailRow[2]).'"'.$fieldLimit.$fieldErrorAttributes.($urlLocked ? ' readonly="readonly"' : '').' style="width:98%" />';
         if($urlLocked)
         {
             $field .= '<br /><span class="vs-subtle">Changing this URL requires MyBB\'s Settings permission.</span>';

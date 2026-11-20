@@ -278,7 +278,13 @@ class VonSEO_Utils
      */
     public static function labelText($value)
     {
-        $value = preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string)$value), ENT_QUOTES, 'UTF-8'));
+        // Remove only real markup (a letter or "/" after "<", or a comment).
+        // strip_tags() would also eat plain text such as "5<6 true?" or "<3",
+        // which MyBB subjects may legitimately contain. Apply exactly once:
+        // decoding twice would turn an escaped "&lt;b&gt;" into a removable tag.
+        // A quoted attribute value may contain ">" (MyBB forum names allow HTML).
+        $value = preg_replace('~<!--.*?-->|</?[a-z](?:[^>"\']++|"[^"]*+"|\'[^\']*+\')*+>~is', '', (string)$value);
+        $value = is_string($value) ? preg_replace('/\s+/u', ' ', html_entity_decode($value, ENT_QUOTES, 'UTF-8')) : '';
         return is_string($value) ? trim($value) : '';
     }
 

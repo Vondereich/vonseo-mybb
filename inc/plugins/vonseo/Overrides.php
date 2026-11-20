@@ -93,14 +93,17 @@ class VonSEO_Overrides
             $context->indexable = false;
             $context->seoSources['indexable'] = self::isNoindex($row) ? 'Entity noindex override' : 'Containing forum noindex';
         }
-        if(isset($row['seo_title']) && $row['seo_title'] !== '')
+        // Overrides are stored as typed; label/filter them exactly once here.
+        $titleOverride = isset($row['seo_title']) ? VonSEO_Utils::labelText($row['seo_title']) : '';
+        if($titleOverride !== '')
         {
-            $context->title = $context->formatSeoTitle($row['seo_title']);
+            $context->title = $context->formatSeoTitle($titleOverride);
             $context->seoSources['title'] = 'Entity override';
         }
-        if(isset($row['seo_description']) && $row['seo_description'] !== '')
+        $descriptionOverride = isset($row['seo_description']) ? VonSEO_Utils::truncateDescription($row['seo_description']) : '';
+        if($descriptionOverride !== '')
         {
-            $context->description = VonSEO_Utils::truncateDescription($row['seo_description']);
+            $context->description = $descriptionOverride;
             $context->seoSources['description'] = 'Entity override';
         }
         if(isset($row['seo_image']) && $row['seo_image'] !== '')
@@ -131,7 +134,10 @@ class VonSEO_Overrides
                 $errors[] = $field.' must contain valid UTF-8 text without binary NUL bytes.';
                 continue;
             }
-            $value = $field === 'seo_image' ? trim($raw) : trim($field === 'seo_title' ? VonSEO_Utils::labelText($raw) : VonSEO_Utils::plainText($raw));
+            // Stored exactly as typed (trimmed). Titles are labelled and descriptions
+            // snippet-filtered ONCE, at output in apply(); filtering here too made
+            // every re-save decode the text again ("&amp;lt;b&amp;gt;" -> "&lt;b&gt;" -> "<b>" -> "").
+            $value = trim($raw);
             if(VonSEO_Utils::strlen($value) > $limit)
             {
                 $errors[] = $field.' exceeds the '.$limit.' character storage limit.';
