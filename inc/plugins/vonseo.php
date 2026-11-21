@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.1.3
+ * @version 1.1.4
  */
 
 if(!defined('IN_MYBB'))
@@ -850,7 +850,7 @@ function vonseo_activate()
     // Also repairs/extends settings when upgrading from an older VonSEO build.
     vonseo_install();
     vonseo_enable_indexnow_task();
-    // Drop sitemap caches from older builds (e.g. 1.1.2 count keys).
+    // Drop sitemap caches from older builds (1.1.2 count rows, 1.1.3 page lists).
     vonseo_purge_sitemap_cache();
 }
 
