@@ -6,6 +6,13 @@ if(!defined('IN_MYBB'))
 
 class VonSEO_Errors
 {
+    /** Upper bound for the 404 retention setting (about ten years). */
+    const MAX_RETENTION_DAYS = 3650;
+    /** Seconds between retention checks when no backlog remains. */
+    const RETENTION_INTERVAL = 3600;
+    /** Rows removed per task run; small batches keep InnoDB lock windows short. */
+    const RETENTION_BATCH = 1000;
+
     /**
      * @param mixed $message
      * @return mixed
@@ -291,6 +298,78 @@ class VonSEO_Errors
             ."SELECT path_hash FROM (SELECT path_hash FROM ".TABLE_PREFIX."vonseo_404_log "
             ."ORDER BY hits ASC,last_seen ASC LIMIT {$remove}) AS vonseo_prune)"
         );
+    }
+
+    /**
+     * Normalize the "keep 404 entries for N days" setting: 0 (or anything
+     * invalid) keeps entries until the row cap prunes them. MyBB stores
+     * numeric settings through (float), so "7.5" and "1.0E+20" are possible;
+     * whole days are used and large values are capped, never switched off.
+     *
+     * @param mixed $value
+     * @return int
+     */
+    public static function retentionDays($value)
+    {
+        $value = is_scalar($value) ? trim((string)$value) : '';
+        if($value === '' || !is_numeric($value))
+        {
+            return 0;
+        }
+        $days = (float)$value;
+        if(!($days >= 1))
+        {
+            // Below one day, negative, or NAN.
+            return 0;
+        }
+        return $days >= self::MAX_RETENTION_DAYS ? self::MAX_RETENTION_DAYS : (int)floor($days);
+    }
+
+    /**
+     * Run age-based retention from the scheduled task, never from a public
+     * request. A check runs at most hourly; when a batch was full, the next
+     * task run continues so a large backlog drains in bounded steps.
+     *
+     * @param mixed $days Raw setting value.
+     * @return int|false Rows removed, or false when nothing ran.
+     */
+    public static function applyRetention($days)
+    {
+        global $db;
+
+        $days = self::retentionDays($days);
+        if($days <= 0 || !is_object($db) || !$db->table_exists('vonseo_404_log') || !class_exists('VonSEO_State'))
+        {
+            return false;
+        }
+
+        $now = defined('TIME_NOW') ? (int)TIME_NOW : time();
+        $lastRun = (int)VonSEO_State::readMeta('notfound_retention_run');
+        $backlog = VonSEO_State::readMeta('notfound_retention_backlog') === '1';
+        if(!$backlog && $lastRun > 0 && $lastRun <= $now && $now - $lastRun < self::RETENTION_INTERVAL)
+        {
+            return false;
+        }
+
+        $cutoff = $now - ($days * 86400);
+        $batch = (int)self::RETENTION_BATCH;
+        // A single-table DELETE with ORDER BY/LIMIT walks the last_seen index;
+        // the primary-key tiebreaker keeps the row choice deterministic.
+        $db->write_query(
+            "DELETE FROM ".TABLE_PREFIX."vonseo_404_log WHERE last_seen<{$cutoff} "
+            ."ORDER BY last_seen ASC,path_hash ASC LIMIT {$batch}"
+        );
+        $removed = method_exists($db, 'affected_rows') ? max(0, (int)$db->affected_rows()) : 0;
+
+        VonSEO_State::writeMetaValue('notfound_retention_run', (string)$now);
+        VonSEO_State::writeMetaValue('notfound_retention_backlog', $removed >= $batch ? '1' : '0');
+        if($removed > 0)
+        {
+            VonSEO_State::writeMetaValue('notfound_retention_removed_at', (string)$now);
+            VonSEO_State::writeMetaValue('notfound_retention_removed', (string)$removed);
+            VonSEO_State::refresh404Count();
+        }
+        return $removed;
     }
 
     /**

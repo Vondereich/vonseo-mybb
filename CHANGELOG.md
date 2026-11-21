@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.5 - 2026-11-21
+
+Maintenance tools. Schema remains 6; no migration.
+
+- Add a **404 Log Retention (Days)** setting. 404 Monitor entries not seen for that many days are removed by the VonSEO background task: it checks at most hourly, removes at most 1,000 rows per run (oldest first) and continues on the next run while a backlog remains. Nothing runs on visitor requests. 0, the default, keeps the existing behaviour, where the 10,000-row cap prunes the lowest-value paths. The setting accepts 0–3650 whole days. MyBB versions that support numeric setting limits clamp larger values when saving; a larger stored value is treated as 3650 in any case. The 404 Monitor shows whether retention is on, when the last cleanup removed entries, and a warning if the task is disabled.
+- Run 404 retention in the existing scheduled task even when IndexNow or the SEO engine is disabled. Activation renames the task to **VonSEO Background Tasks**; its file stays `vonseo_indexnow`. Deactivate and reactivate once to add the setting; until then retention stays off. Activation enables the task, as in earlier versions.
+- Show each queued thread's last successful IndexNow submission in the IndexNow Queue tab, with its last known public URL when that differs from the queued one, and link the thread ID to the thread.
+- Fix relative dates in the IndexNow Queue tab and the Overview's IndexNow status, which showed MyBB's date markup as literal text.
+- Add regression tests for retention (setting bounds, hourly interval, bounded batches, task behaviour with IndexNow off) and for the new ACP output.
+
 ## 1.1.4 - 2026-11-21
 
 Maintenance release with fixes to 1.1.3. Schema remains 6; no migration.
