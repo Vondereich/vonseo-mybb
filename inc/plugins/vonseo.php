@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.1.4
+ * @version 1.1.5
  */
 
 if(!defined('IN_MYBB'))
@@ -239,12 +239,21 @@ function vonseo_install()
             'disporder'   => 17
         ),
         array(
+            'name'        => 'vonseo_404_retention_days',
+            'title'       => '404 Log Retention (Days)',
+            'description' => 'Remove 404 Monitor entries not seen for this many days. 0 keeps entries until the 10,000-row cap prunes the lowest-value paths. Cleanup runs in the VonSEO background task (checked at most hourly, up to 1,000 entries per run), never on visitor requests. Maximum 3650.',
+            // MyBB clamps numeric settings to min/max when they are saved.
+            'optionscode' => "numeric\nmin=0\nmax=3650\nstep=1",
+            'value'       => '0',
+            'disporder'   => 18
+        ),
+        array(
             'name'        => 'vonseo_robots_enabled',
             'title'       => 'Enable Robots Output',
             'description' => 'Expose crawler rules through misc.php?action=vonseo_robots. An optional rewrite can map /robots.txt to this endpoint.',
             'optionscode' => 'onoff',
             'value'       => '1',
-            'disporder'   => 18
+            'disporder'   => 19
         ),
         array(
             'name'        => 'vonseo_robots_txt',
@@ -252,7 +261,7 @@ function vonseo_install()
             'description' => 'Rules placed before the Sitemap line. Custom Crawl-delay directives are preserved. Paths are generated for the configured MyBB subfolder on new installations.',
             'optionscode' => 'textarea',
             'value'       => vonseo_default_robots_rules(),
-            'disporder'   => 19
+            'disporder'   => 20
         ),
         array(
             'name'        => 'vonseo_searchbox_schema',
@@ -260,7 +269,7 @@ function vonseo_install()
             'description' => 'Optional WebSite SearchAction JSON-LD. Google retired the Sitelinks Search Box result in 2024; this setting does not restore it.',
             'optionscode' => 'onoff',
             'value'       => '0',
-            'disporder'   => 20
+            'disporder'   => 21
         ),
         array(
             'name'        => 'vonseo_block_ai_crawlers',
@@ -268,7 +277,7 @@ function vonseo_install()
             'description' => 'Block training and scraper crawlers such as GPTBot, ClaudeBot, Google-Extended, Bytespider and CCBot. This does not block ChatGPT search.',
             'optionscode' => 'onoff',
             'value'       => '0',
-            'disporder'   => 21
+            'disporder'   => 22
         ),
         array(
             'name'        => 'vonseo_block_ai_search_crawlers',
@@ -276,7 +285,7 @@ function vonseo_install()
             'description' => 'Optionally block OAI-SearchBot and PerplexityBot. Leave off if you want public forum pages eligible for AI search results.',
             'optionscode' => 'onoff',
             'value'       => '0',
-            'disporder'   => 22
+            'disporder'   => 23
         ),
         array(
             'name'        => 'vonseo_indexnow_enabled',
@@ -284,7 +293,7 @@ function vonseo_install()
             'description' => 'Queue public thread URLs and submit them to participating search engines through a MyBB background task.',
             'optionscode' => 'onoff',
             'value'       => '1',
-            'disporder'   => 23
+            'disporder'   => 24
         ),
         array(
             'name'        => 'vonseo_indexnow_key',
@@ -292,7 +301,7 @@ function vonseo_install()
             'description' => 'The 32-character hexadecimal key for IndexNow verification. Generated on installation; submissions stop if this setting is cleared.',
             'optionscode' => 'text',
             'value'       => VonSEO_Utils::randomHex(16),
-            'disporder'   => 24
+            'disporder'   => 25
         ),
         array(
             'name'        => 'vonseo_indexnow_auto_ping',
@@ -300,7 +309,7 @@ function vonseo_install()
             'description' => 'Queue thread URLs after creation, reply, or update. Visitor requests do not wait for the external IndexNow service.',
             'optionscode' => 'onoff',
             'value'       => '1',
-            'disporder'   => 25
+            'disporder'   => 26
         ),
         array(
             'name'        => 'vonseo_keyword_urls',
@@ -308,7 +317,7 @@ function vonseo_install()
             'description' => 'Use ID-based keyword URLs for public forum/thread canonical links, navigation, exact post targets, stock thread actions, sitemaps and IndexNow. Requires the matching Apache-style or Nginx keyword rules supplied in extras/. Test direct visits on your board before enabling; filtered/display-mode links remain native.',
             'optionscode' => 'onoff',
             'value'       => '0',
-            'disporder'   => 26
+            'disporder'   => 27
         )
     );
 
@@ -727,8 +736,8 @@ function vonseo_enable_indexnow_task()
     $query = $db->simple_select('tasks', 'tid', "file='vonseo_indexnow'", array('limit' => 1));
     $tid = (int)$db->fetch_field($query, 'tid');
     $data = array(
-        'title' => 'VonSEO IndexNow Queue',
-        'description' => 'Submits queued public URLs to IndexNow outside visitor requests.',
+        'title' => 'VonSEO Background Tasks',
+        'description' => 'Submits queued public URLs to IndexNow and applies 404 log retention outside visitor requests.',
         'minute' => '*', 'hour' => '*', 'day' => '*', 'month' => '*', 'weekday' => '*',
         'nextrun' => $now + 60,
         'enabled' => 1,

@@ -2,14 +2,14 @@
 
 VonSEO is a server-rendered SEO subsystem for MyBB, adapted from the URL ownership and crawler-safety concepts used in VonCMS SEO and informed by proven MyBB SEO plugin patterns.
 
-Stable version: **1.1.4**. This maintenance release fixes issues in 1.1.3: ACP confirmation pages no longer run the action when **No** is clicked, Site Details and SEO overrides keep exactly what was typed, and the HTML scanner follows the HTML5 tokenizer. It retains 1.1.3's IndexNow Queue tab, Site Details hardening, full titles and thread-ID sitemap pages, and the forum/thread SEO controls introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
+Stable version: **1.1.5**. This maintenance release adds optional 404 log retention, run by the VonSEO background task, and shows each queued thread's last successful IndexNow submission and a thread link in the IndexNow Queue tab. It retains 1.1.4's fixes (ACP confirmation pages no longer run the action when **No** is clicked, Site Details and SEO overrides keep exactly what was typed, and the HTML scanner follows the HTML5 tokenizer), and 1.1.3's IndexNow Queue tab, Site Details hardening, full titles and thread-ID sitemap pages, and the forum/thread SEO controls introduced in 1.1.0. Schema remains 6. Test upgrades on staging before production use. Keyword URLs remain opt-in and off by default. No search-ranking or indexing result is guaranteed.
 
 VonSEO is licensed under **LGPL-3.0-only**. See `NOTICE.txt` and `LICENSE.txt`.
 
 ## Requirements
 
 - MyBB 1.8.x
-- PHP 7.1 or newer for plugin syntax. The 1.1.0 Ubuntu CI run covered plugin lint/self-contained tests on PHP 7.1–8.5. Maintenance build 1.1.4 is checked locally on PHP 7.1–8.5 with the self-contained regressions, on MySQL 8.4 (PHP 7.4–8.5) and MariaDB 10.11 (PHP 7.1–8.5) with the SQL and native MyBB lifecycle checks, and on an installed local board (PHP 8.5 web, restricted-account and guest smokes). MySQL 8.4 was exercised with PHP 7.4–8.5 only. PHP 7.1 could not authenticate with MySQL 8's default `caching_sha2_password` ("authentication method unknown to the client"), and PHP 7.2–7.3 were not tested against MySQL 8. With PHP older than 7.4, use MariaDB or a MySQL account using `mysql_native_password` (MySQL 8.4 must have that plugin enabled). These checks are not full installed MyBB HTTP tests on every runtime. MyBB's own PHP minimum is broader than this plugin's.
+- PHP 7.1 or newer for plugin syntax. The 1.1.0 Ubuntu CI run covered plugin lint/self-contained tests on PHP 7.1–8.5. Maintenance build 1.1.5 is checked locally on PHP 7.1–8.5 with the self-contained regressions, on MySQL 8.4 (PHP 7.4–8.5) and MariaDB 10.11 (PHP 7.1–8.5) with the SQL and native MyBB lifecycle checks, and on an installed local board (PHP 8.5 web, restricted-account and guest smokes, plus a deactivate/reactivate upgrade and a manual 404 retention task run). MySQL 8.4 was exercised with PHP 7.4–8.5 only. PHP 7.1 could not authenticate with MySQL 8's default `caching_sha2_password` ("authentication method unknown to the client"), and PHP 7.2–7.3 were not tested against MySQL 8. With PHP older than 7.4, use MariaDB or a MySQL account using `mysql_native_password` (MySQL 8.4 must have that plugin enabled). These checks are not full installed MyBB HTTP tests on every runtime. MyBB's own PHP minimum is broader than this plugin's.
 - MySQL or MariaDB. VonSEO uses MySQL-family upserts plus advisory locking for bounded 404 logging and its durable IndexNow queue.
 - No MyBB core edits
 - Core metadata and native crawler endpoints are web-server independent. Optional Apache-style and Nginx rewrite examples are supplied in `extras/`; merge the matching example into your existing server configuration and test it on staging.
@@ -110,15 +110,16 @@ MyBB's Guest access restrictions take precedence over SEO settings. IndexNow pau
 
 Upgrade from 1.0.8 or a 1.1.0 beta: back up your files/database, replace all package `admin/` and `inc/` files, then deactivate/reactivate without uninstalling to run the idempotent schema 6 migration. Settings, redirects and existing queue data are retained. Deactivation also retains overrides. For rollback, retain the new table but restore the entire 1.0.8 file set: older code ignores overrides, so SEO noindex/metadata overrides stop applying until the new code returns. SEO noindex is not privacy protection; use MyBB permissions to restrict access. Uninstall permanently removes the override table.
 
-### Updating an existing 1.1.x installation to 1.1.4
+### Updating an existing 1.1.x installation to 1.1.5
 
 1. Back up the forum files/database and any customized plugin files.
 2. Replace the package's `admin/` and `inc/` files in the MyBB installation directory. If ACP is renamed, use its actual directory. Do not upload `extras/` or replace an existing `.htaccess` with an example file.
-3. No new migration or uninstall/reinstall is required from a working schema 6 installation. Keep the plugin active and its existing settings, queue, overrides and server rules. If Overview reports an incomplete schema, follow its deactivate/reactivate instructions without uninstalling. Optionally deactivate and reactivate once (never uninstall) to remove sitemap cache rows left by 1.1.2/1.1.3; they otherwise stay harmless.
-4. Reload ACP and confirm version 1.1.4. Check Site Details, SEO Controls and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
-5. Coming from 1.1.2: open the sitemap index once. Thread sitemap pages are fixed thread-ID ranges since 1.1.3, so their page numbers may skip values; keep submitting the index URL, not individual `type=threads` page URLs.
+3. No new migration or uninstall/reinstall is required from a working schema 6 installation. Keep the plugin installed with its existing settings, queue, overrides and server rules. If Overview reports an incomplete schema, follow its deactivate/reactivate instructions without uninstalling.
+4. Deactivate and reactivate VonSEO once (never uninstall) to add the **404 Log Retention (Days)** setting and rename the scheduled task to **VonSEO Background Tasks**. Existing settings, redirects, 404 entries, queue and overrides are kept. This also removes sitemap cache rows left by 1.1.2/1.1.3. Until you do, retention stays off and everything else works as before. Activation always enables the `vonseo_indexnow` task, so if you had disabled it in Task Manager on purpose, disable it again afterwards.
+5. Reload ACP and confirm version 1.1.5. Check Site Details, SEO Controls, the 404 Monitor, the IndexNow Queue tab and representative public pages. Invalid form drafts exist only in that response; navigating away discards them without saving.
+6. Coming from 1.1.2: open the sitemap index once. Thread sitemap pages are fixed thread-ID ranges since 1.1.3, so their page numbers may skip values; keep submitting the index URL, not individual `type=threads` page URLs.
 
-1.1.4 does not change canonical URLs, keyword slugs, keyword settings, sitemap eligibility, IndexNow delivery or saved data. On ACP confirmation pages **No** now returns without acting. SEO title/description overrides and the Site Details SEO Description are stored exactly as typed and filtered once when output; existing values render as before. Since 1.1.3, titles and social/schema names keep `[TAG]` prefixes and URLs, Site Details rejects new `<`, `>`, `"` and backtick characters in the Board/Homepage name and URL fields, changing the Board or Homepage URL needs MyBB's Settings permission, and the custom 404 message is plain text. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.3, 1.1.2 or 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible.
+1.1.5 does not change canonical URLs, keyword slugs, keyword settings, sitemap eligibility or IndexNow delivery, and does not remove saved data unless you turn on 404 retention (off, 0 days, by default). Since 1.1.4, **No** on ACP confirmation pages returns without acting. SEO title/description overrides and the Site Details SEO Description are stored exactly as typed and filtered once when output; existing values render as before. Since 1.1.3, titles and social/schema names keep `[TAG]` prefixes and URLs, Site Details rejects new `<`, `>`, `"` and backtick characters in the Board/Homepage name and URL fields, changing the Board or Homepage URL needs MyBB's Settings permission, and the custom 404 message is plain text. Do not edit working rewrite rules just because the version changed. To roll back to 1.1.4, 1.1.3, 1.1.2 or 1.1.0, restore its complete `admin/` and `inc/` file set; schema 6 and saved data remain compatible. Older code ignores the 404 retention setting, so no cleanup runs after a rollback; set it to 0 first so the setting left in the VonSEO group does not suggest otherwise.
 
 ## Apache setup: using the `extras` files
 
@@ -401,6 +402,7 @@ The 404 Monitor records final public `404 Not Found` responses as normalized URL
 - Clear one entry after resolving it, or clear all entries after a controlled test.
 - Visiting the custom test endpoint `misc.php?action=vonseo_404` deliberately produces a 404 and can therefore appear in the monitor. That is expected; clear the test entry afterward.
 - Disable **404 Monitor** if logging is unwanted while keeping **404 Status Guard** enabled for correct HTTP responses.
+- Set **404 Log Retention (Days)** to remove entries not seen for that many days (1.1.5). The value is whole days from 0 to 3650. MyBB versions that support numeric setting limits clamp larger values when saving, and VonSEO treats any larger stored value as 3650. Cleanup runs in the VonSEO background task, checked at most hourly and at most 1,000 rows per run (the next run continues while older entries remain), never on visitor requests. It runs even when IndexNow is disabled, but only while the `vonseo_indexnow` task is enabled in Task Manager. 0, the default, keeps entries until the 10,000-row cap prunes the lowest-value paths; that cap always applies. The 404 Monitor shows the current retention and the last cleanup.
 
 Use **Search URL** to find a missing path, choose hits or first/last-seen sorting, and press **Apply**. Results are paginated in groups of 50 with First/Previous/Next/Last controls. A search with no matches does not mean the log was cleared: press **Reset** to see all entries again. On narrow screens, the sort dropdown remains available when table headings are hidden.
 
@@ -417,6 +419,7 @@ Admin CP → Configuration → VonSEO → **IndexNow Queue** lists every queued 
 - **Retry now** makes one URL due immediately. Its attempt count is kept, so the 10-attempt limit still applies.
 - **Retry all waiting** clears the retry wait for every URL that failed delivery. Use it after fixing the cause, such as a key or rate-limit problem. Reply/edit cooldowns are not changed.
 - **Remove** deletes one queued URL. New activity on that thread can queue it again.
+- **Last sent** (1.1.5) shows when the thread's content was last submitted successfully, or **Never**, with the last known public URL when it differs from the queued one. The last known URL is updated whenever the thread is queued, so after a URL change it can already show the new URL; successful removal notices do not change the time. The thread ID opens `showthread.php?tid=N`; a thread that is no longer visible to your account, for example after permanent deletion, will not open.
 
 Each action needs a confirmation POST with MyBB's post key and is recorded in the admin log. Rows are addressed by queue ID and generation, so a newer queue entry for the same thread is never retried or removed by an older page. Retrying does not bypass delivery checks: the task still re-checks that each thread is public and the board is Guest-accessible, and still sends at most 25 URLs per run. The tab uses the base **VonSEO** permission. No schema change is required.
 
@@ -426,7 +429,7 @@ The Overview also includes one compact **Site Details** form. Board Name, Board 
 
 1. Open Configuration → VonSEO. A key is generated during installation and the Overview should report **Ready** when IndexNow is enabled.
 2. Open the displayed IndexNow key endpoint and confirm it contains only the current key. This verification key is intentionally public and is not a password or private API credential.
-3. Confirm the `vonseo_indexnow` task is enabled under Tools & Maintenance → Task Manager. New public thread activity is queued; visitor requests do not wait for the remote service.
+3. Confirm the `vonseo_indexnow` task (titled **VonSEO Background Tasks** since 1.1.5; it also applies 404 retention) is enabled under Tools & Maintenance → Task Manager. New public thread activity is queued; visitor requests do not wait for the remote service.
 4. Publish or update a public test thread and allow the scheduled task to run. Check queue depth, last success and the last error in the Overview.
 5. If the key is missing or should be replaced, use **Generate new IndexNow key**. The new key immediately replaces the old verification value while preserving queued URLs.
 
@@ -570,7 +573,7 @@ Correct MyBB's **Board URL** in Site Details. VonSEO deliberately trusts that co
 
 ## Scope and limitations
 
-Version 1.1.4 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
+Version 1.1.5 combines public-content metadata and schema, optional keyword thread/forum URLs, sitemap/robots endpoints, redirects/404 monitoring with optional retention, privacy-aware IndexNow and ACP forum/thread SEO Controls. It does not include profile sitemaps, SEO overrides for other entity types or automatic conversion of legacy third-party SEO URL databases. Calendar day/week views intentionally remain noindex. Each site's rewrite stack, theme, other plugins and production crawler behavior still need staging verification.
 
 ## Source checks and packaging
 
@@ -578,4 +581,4 @@ From a GitHub source checkout, run `php scripts/check.php` to check the public f
 
 GitHub Actions runs these source checks on the configured PHP matrix and separately builds the upload ZIP. These jobs do not run the full regression suite or prove installed-forum behavior; verify your own staging deployment using the checklist above.
 
-On Windows with PowerShell, run `./scripts/create_release.ps1 -Version 1.1.4` to build a byte-verified upload ZIP from the explicit release manifest. Old release ZIPs in the project root are removed after verification succeeds. The upload ZIP excludes build tools, internal documents, test fixtures and local backups.
+On Windows with PowerShell, run `./scripts/create_release.ps1 -Version 1.1.5` to build a byte-verified upload ZIP from the explicit release manifest. Old release ZIPs in the project root are removed after verification succeeds. The upload ZIP excludes build tools, internal documents, test fixtures and local backups.

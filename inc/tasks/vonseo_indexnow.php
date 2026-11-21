@@ -1,6 +1,7 @@
 <?php
 /**
- * MyBB scheduled task for VonSEO's non-blocking IndexNow queue.
+ * MyBB scheduled task for VonSEO background work: 404 log retention and the
+ * non-blocking IndexNow queue. Neither runs on a visitor request.
  */
 
 if(!defined('IN_MYBB'))
@@ -19,14 +20,33 @@ function task_vonseo_indexnow($task)
     $pluginCache = is_object($cache) && method_exists($cache, 'read') ? $cache->read('plugins') : false;
     $active = is_array($pluginCache) && !empty($pluginCache['active']) &&
         (isset($pluginCache['active']['vonseo']) || in_array('vonseo', $pluginCache['active'], true));
-    if(!$active || empty($mybb->settings['vonseo_enabled']) || empty($mybb->settings['vonseo_indexnow_enabled']))
+    if(!$active)
     {
         return;
     }
 
     require_once MYBB_ROOT.'inc/plugins/vonseo/Utils.php';
-    require_once MYBB_ROOT.'inc/plugins/vonseo/Url.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/State.php';
+
+    // Retention is data housekeeping, so it does not depend on IndexNow or
+    // on the 404 monitor still recording new paths.
+    if(!empty($mybb->settings['vonseo_404_retention_days']))
+    {
+        require_once MYBB_ROOT.'inc/plugins/vonseo/Errors.php';
+        $removed = VonSEO_Errors::applyRetention($mybb->settings['vonseo_404_retention_days']);
+        if($removed && function_exists('add_task_log'))
+        {
+            add_task_log($task, 'Removed '.$removed.' 404 log entr'.($removed === 1 ? 'y' : 'ies').' not seen for '
+                .VonSEO_Errors::retentionDays($mybb->settings['vonseo_404_retention_days']).' day(s).');
+        }
+    }
+
+    if(empty($mybb->settings['vonseo_enabled']) || empty($mybb->settings['vonseo_indexnow_enabled']))
+    {
+        return;
+    }
+
+    require_once MYBB_ROOT.'inc/plugins/vonseo/Url.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/Overrides.php';
     require_once MYBB_ROOT.'inc/plugins/vonseo/IndexNow.php';
 

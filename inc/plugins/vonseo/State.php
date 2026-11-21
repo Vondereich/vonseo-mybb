@@ -267,6 +267,48 @@ class VonSEO_State
     }
 
     /**
+     * Read a maintenance marker from the plugin-owned metadata table. These
+     * rows are not datacache entries, so MyBB never loads them per request.
+     *
+     * @param string $key
+     * @return string
+     */
+    public static function readMeta($key)
+    {
+        global $db;
+        if(!is_object($db) || !method_exists($db, 'table_exists') || !$db->table_exists('vonseo_meta'))
+        {
+            return '';
+        }
+        $query = $db->simple_select('vonseo_meta', 'meta_value', "meta_key='".$db->escape_string($key)."'", array('limit' => 1));
+        $value = $db->fetch_field($query, 'meta_value');
+        return is_string($value) ? $value : (is_numeric($value) ? (string)$value : '');
+    }
+
+    /**
+     * Only maintenance markers may be written here. meta_key uses a
+     * case-insensitive collation, so a denylist could not protect the schema
+     * row; an exact lowercase allowlist pattern can.
+     *
+     * @param string $key
+     * @param string $value
+     * @return bool
+     */
+    public static function writeMetaValue($key, $value)
+    {
+        if(!is_string($key) || !preg_match('/^notfound_retention_[a-z_]{1,40}$/D', $key))
+        {
+            return false;
+        }
+        if(!self::ensureSchemaStore())
+        {
+            return false;
+        }
+        self::writeMeta($key, substr((string)$value, 0, 255));
+        return true;
+    }
+
+    /**
      * @param string $key
      * @param string $value
      * @return void

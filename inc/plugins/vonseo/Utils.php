@@ -6,7 +6,7 @@ if(!defined('IN_MYBB'))
 
 if(!defined('VONSEO_VERSION'))
 {
-    define('VONSEO_VERSION', '1.1.4');
+    define('VONSEO_VERSION', '1.1.5');
 }
 
 class VonSEO_Utils

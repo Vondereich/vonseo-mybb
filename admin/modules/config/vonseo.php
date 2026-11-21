@@ -188,8 +188,9 @@ $vonseoAdminCss = <<<'CSS'
 .vs-table-indexnow td:nth-child(1):before{content:"URL"}
 .vs-table-indexnow td:nth-child(2):before{content:"State"}
 .vs-table-indexnow td:nth-child(3):before{content:"Attempts"}
-.vs-table-indexnow td:nth-child(4):before{content:"Last error"}
-.vs-table-indexnow td:nth-child(5):before{content:"Controls"}
+.vs-table-indexnow td:nth-child(4):before{content:"Last sent"}
+.vs-table-indexnow td:nth-child(5):before{content:"Last error"}
+.vs-table-indexnow td:nth-child(6):before{content:"Controls"}
 .vs-table-inspector td:nth-child(1):before{content:"Step"}
 .vs-table-inspector td:nth-child(2):before{content:"Source"}
 .vs-table-inspector td:nth-child(3):before{content:"Response / State"}
@@ -997,6 +998,52 @@ if($action === 'notfound')
     echo '</div>';
     echo '<div class="vs-notice">Only missing URL paths, route-specific public identifiers and aggregate counts are stored. Unknown, tracking and secret-bearing query fields are discarded; visitor IP addresses are not recorded.</div>';
 
+    $retentionLink = '';
+    if($canChangeIdentityUrls)
+    {
+        $retentionGidQuery = $db->simple_select('settinggroups', 'gid', "name='vonseo'", array('limit' => 1));
+        $retentionGid = (int)$db->fetch_field($retentionGidQuery, 'gid');
+        if($retentionGid > 0)
+        {
+            $retentionLink = ' <a href="index.php?module=config-settings&amp;action=change&amp;gid='.$retentionGid.'#row_setting_vonseo_404_retention_days">Change retention</a>';
+        }
+    }
+    if(!array_key_exists('vonseo_404_retention_days', $mybb->settings))
+    {
+        echo '<div class="vs-notice">404 log retention is available after VonSEO is deactivated and activated once (no data is removed). Until then, entries are kept until the 10,000-row cap prunes the lowest-value paths.</div>';
+    }
+    else
+    {
+        $retentionDays = VonSEO_Errors::retentionDays($mybb->settings['vonseo_404_retention_days']);
+        if($retentionDays > 0)
+        {
+            $retentionText = 'Entries not seen for '.my_number_format($retentionDays).' day'.($retentionDays === 1 ? '' : 's')
+                .' are removed by the VonSEO background task (checked at most hourly, never on visitor requests).';
+            $retentionRemovedAt = (int)VonSEO_State::readMeta('notfound_retention_removed_at');
+            if($retentionRemovedAt > 0)
+            {
+                $retentionRemoved = (int)VonSEO_State::readMeta('notfound_retention_removed');
+                // my_date('relative') may return a plain date for older runs, so it leads the clause.
+                $retentionText .= ' Last cleanup: '.my_date('relative', $retentionRemovedAt).', '.my_number_format($retentionRemoved)
+                    .' entr'.($retentionRemoved === 1 ? 'y' : 'ies').' removed.';
+            }
+            $retentionTaskQuery = $db->simple_select('tasks', 'enabled', "file='vonseo_indexnow'", array('limit' => 1));
+            $retentionTask = $db->fetch_array($retentionTaskQuery);
+            if(!is_array($retentionTask) || empty($retentionTask['enabled']))
+            {
+                echo '<div class="vs-notice is-warning">'.$retentionText.' The <span class="vs-code">vonseo_indexnow</span> task is not enabled, so no cleanup runs until it is enabled in Tools &amp; Maintenance &rarr; Task Manager.'.$retentionLink.'</div>';
+            }
+            else
+            {
+                echo '<div class="vs-notice">'.$retentionText.$retentionLink.'</div>';
+            }
+        }
+        else
+        {
+            echo '<div class="vs-notice">404 log retention is off: entries are kept until the 10,000-row cap prunes the lowest-value paths.'.$retentionLink.'</div>';
+        }
+    }
+
     echo $list->filters();
     $table = new Table;
     $table->construct_header($list->heading('Missing URL', 'path'));
@@ -1088,8 +1135,30 @@ if($action === 'indexnow')
     $table->construct_header($list->heading('URL', 'path'));
     $table->construct_header($list->heading('State', 'next'), array('width' => 190));
     $table->construct_header($list->heading('Attempts', 'attempts'), array('class' => 'align_center', 'width' => 90));
+    $table->construct_header('Last sent', array('width' => 170));
     $table->construct_header('Last error');
     $table->construct_header('Controls', array('class' => 'align_center', 'width' => 150));
+
+    // Delivery history for this page only: one bounded lookup, keyed by thread.
+    $queueHistory = array();
+    $queueTids = array();
+    foreach($listRows as $row)
+    {
+        if((int)$row['tid'] > 0)
+        {
+            $queueTids[(int)$row['tid']] = (int)$row['tid'];
+        }
+    }
+    if($queueTids && $db->table_exists('vonseo_indexnow_threads'))
+    {
+        $historyQuery = $db->simple_select('vonseo_indexnow_threads', 'tid,last_public_url,last_submitted_at',
+            'tid IN ('.implode(',', $queueTids).')');
+        while($historyRow = $db->fetch_array($historyQuery))
+        {
+            $queueHistory[(int)$historyRow['tid']] = $historyRow;
+        }
+    }
+    $queueBoardUrl = rtrim((string)$mybb->settings['bburl'], '/');
 
     foreach($listRows as $row)
     {
@@ -1097,21 +1166,40 @@ if($action === 'indexnow')
         $retryAt = (int)$row['retry_not_before'];
         if($retryAt > $queueNow)
         {
-            $state = '<span class="vs-status is-warn">Waiting to retry</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $retryAt)).'</span>';
+            $state = '<span class="vs-status is-warn">Waiting to retry</span><br /><span class="vs-subtle">'.my_date('relative', $retryAt).'</span>';
         }
         elseif($availableAt > $queueNow)
         {
-            $state = '<span class="vs-status is-neutral">Scheduled</span><br /><span class="vs-subtle">'.htmlspecialchars_uni(my_date('relative', $availableAt)).'</span>';
+            $state = '<span class="vs-status is-neutral">Scheduled</span><br /><span class="vs-subtle">'.my_date('relative', $availableAt).'</span>';
         }
         else
         {
             $state = '<span class="vs-status is-on">Due now</span>';
         }
         $kind = isset($row['event_type']) && $row['event_type'] === 'removed' ? 'Removal notice' : 'Updated content';
+        $queueTid = (int)$row['tid'];
+        // Link the stable ID route; it works whether or not keyword URLs are enabled.
+        $threadLink = '<a href="'.htmlspecialchars_uni($queueBoardUrl.'/showthread.php?tid='.$queueTid).'" target="_blank" rel="noopener noreferrer">thread #'.$queueTid.'</a>';
         $table->construct_cell('<span class="vs-code">'.htmlspecialchars_uni($row['url']).'</span><br /><span class="vs-subtle">'
-            .htmlspecialchars_uni($kind).' &middot; thread #'.(int)$row['tid'].'</span>');
+            .htmlspecialchars_uni($kind).' &middot; '.$threadLink.'</span>');
         $table->construct_cell($state);
         $table->construct_cell(my_number_format((int)$row['attempts']), array('class' => 'align_center'));
+        $history = isset($queueHistory[$queueTid]) ? $queueHistory[$queueTid] : array();
+        $lastSentAt = isset($history['last_submitted_at']) ? (int)$history['last_submitted_at'] : 0;
+        if($lastSentAt > 0)
+        {
+            $lastSent = my_date('relative', $lastSentAt);
+            $lastSentUrl = isset($history['last_public_url']) ? (string)$history['last_public_url'] : '';
+            if($lastSentUrl !== '' && $lastSentUrl !== (string)$row['url'])
+            {
+                $lastSent .= '<br /><span class="vs-subtle">Last known URL: <span class="vs-code">'.htmlspecialchars_uni($lastSentUrl).'</span></span>';
+            }
+        }
+        else
+        {
+            $lastSent = '<span class="vs-subtle">Never</span>';
+        }
+        $table->construct_cell($lastSent);
         $table->construct_cell($row['last_error'] !== '' ? htmlspecialchars_uni($row['last_error']) : '<span class="vs-subtle">None</span>');
         $rowKey = '&amp;qid='.(int)$row['qid'].'&amp;generation='.htmlspecialchars_uni($row['generation']);
         $table->construct_cell('<span class="vs-row-actions">'
@@ -1126,7 +1214,7 @@ if($action === 'indexnow')
         $empty = $queueSummary['total'] > 0
             ? 'No queued URLs match these filters. Try another URL or reset the filters.'
             : 'The IndexNow queue is empty. New, edited and moderated public threads appear here until the task sends them.';
-        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 5));
+        $table->construct_cell('<div class="vs-empty">'.$empty.'</div>', array('colspan' => 6));
         $table->construct_row();
     }
 
@@ -1514,7 +1602,7 @@ $health->construct_cell('<span class="vs-status '.$indexNowStatusClass.'">'.html
 $indexNowDetail = my_number_format($indexNowQueueCount).' waiting. ';
 if($lastIndexNowSuccess > 0)
 {
-    $indexNowDetail .= 'Last success: '.htmlspecialchars_uni(my_date('relative', $lastIndexNowSuccess)).'. ';
+    $indexNowDetail .= 'Last success: '.my_date('relative', $lastIndexNowSuccess).'. ';
 }
 else
 {
