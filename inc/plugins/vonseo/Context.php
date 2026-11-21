@@ -640,7 +640,7 @@ class VonSEO_Context
         $this->indexable = true;
 
         $name = isset($calendarData['name']) ? VonSEO_Utils::labelText($calendarData['name']) : '';
-        $label = isset($captured['label']) ? VonSEO_Utils::labelText($captured['label']) : '';
+        $label = isset($captured['label']) ? (string)$captured['label'] : ''; // Already labelled at capture.
         $calendarTitle = trim($name.($label !== '' ? ' - '.$label : ''));
         $this->title = $this->withBoardName($calendarTitle);
         $this->description = VonSEO_Utils::truncateDescription(VonSEO_Utils::setting('vonseo_site_description'));
@@ -976,12 +976,16 @@ class VonSEO_Context
     }
 
     /**
+     * Callers pass text that has already been through labelText() once (or a
+     * fixed literal). Do not label it again: a second decode would turn an
+     * escaped "&lt;b&gt;" subject into a tag and remove it.
+     *
      * @param string $title
      * @return string
      */
     protected function withBoardName($title)
     {
-        $title = VonSEO_Utils::labelText($title);
+        $title = trim((string)$title);
         $board = $this->boardName();
 
         if($title === '')

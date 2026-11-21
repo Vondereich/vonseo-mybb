@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.4 - 2026-11-21
+
+Maintenance release with fixes to 1.1.3. Schema remains 6; no migration.
+
+- Fix ACP confirmation pages running the action when **No** is clicked. MyBB's confirm form posts "No" with a valid post key, and VonSEO never checked for it, so declining still deleted a redirect, cleared a 404 entry or the whole 404 log, or retried/removed IndexNow queue entries. All six confirm actions now return to their list on "No".
+- Make the Site Details prefill round-trip stored values exactly. MyBB's `htmlspecialchars_uni()` leaves numeric entities such as `&#34;` unescaped, so a stored name could post back different text and block or silently rewrite the save. A value equal to the current MyBB setting is now kept as-is without validation, so a legacy name or homepage URL never blocks saving the other fields.
+- Make the HTML tag scanner follow the HTML5 tokenizer states. A quote opens an attribute value only after `=`; quotes and `<` inside tag or attribute names are name characters; `/` between attributes no longer stops attribute parsing; bogus comments (`<!x`, `<?x`, `</` + non-letter) end at their first `>`; and comments also end at `--!>`, `<!-->` and `<!--->`. Inside scripts, `<!-->` and `<!--->` no longer start an escaped section. `<![CDATA[` in HTML content is a bogus comment ending at its first `>`, as browsers treat it. Previously markup such as `<link x"y>` could hide the whole `<head>` or later links, and a rewritten link could land inside another attribute's value.
+- Decode titles and names exactly once and remove only real markup (including tags whose quoted attributes contain `>`). A subject such as `Is 5<6 true?` or `<3 MyBB` no longer loses text in `<title>`, Open Graph/Twitter tags or schema.
+- Store SEO title/description overrides and the Site Details SEO Description exactly as typed, and filter them once at output. Filtering at save time re-decoded the text on every later save, so `&amp;lt;br&amp;gt;` or `[rules]` and URLs were gradually stripped. Override rows saved by 1.1.0–1.1.3 render as before. A changed SEO Description must now be valid UTF-8 without control characters (tab and line breaks are allowed), in addition to the existing 320-character limit.
+- Keep a Site Details value that is not valid UTF-8 exactly as stored and show a notice instead of an input. Such a value cannot round-trip through an HTML form and was previously erased on the next save.
+- Store the sitemap page list compactly (`1-120,125`) and cap the sitemap index at 50,000 entries, keeping the newest thread ranges. MyBB's default database cache loads every datacache row on each request. Activation and uninstall now remove VonSEO sitemap cache rows, including 1.1.2 count rows.
+- Add regression tests for these fixes.
+
 ## 1.1.3 - 2026-11-20
 
 - Add an ACP **IndexNow Queue** tab. It lists each queued URL with notification type, thread ID, state (due now, waiting to retry, or scheduled by cooldown), attempts and last error, with URL search, state/type filters, sorting and 50-row pagination. **Retry now**, **Retry all waiting** and **Remove** are confirmation POST actions with post-key checks and admin logging; single-row actions match queue ID and generation and report an entry that was sent or replaced since the page loaded instead of claiming success, retries keep the attempt count, and delivery still re-checks public eligibility. Uses the base VonSEO permission; no schema change.

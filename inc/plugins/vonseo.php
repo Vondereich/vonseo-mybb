@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.1.3
+ * @version 1.1.4
  */
 
 if(!defined('IN_MYBB'))
@@ -838,6 +838,7 @@ function vonseo_uninstall()
         $db->drop_table('vonseo_overrides');
     }
     vonseo_remove_indexnow_task();
+    vonseo_purge_sitemap_cache();
     VonSEO_State::forget();
 
     rebuild_settings();
@@ -849,6 +850,45 @@ function vonseo_activate()
     // Also repairs/extends settings when upgrading from an older VonSEO build.
     vonseo_install();
     vonseo_enable_indexnow_task();
+    // Drop sitemap caches from older builds (1.1.2 count rows, 1.1.3 page lists).
+    vonseo_purge_sitemap_cache();
+}
+
+/**
+ * Remove every VonSEO sitemap datacache entry. They are rebuildable caches;
+ * MyBB's default database store loads all datacache rows on every request,
+ * so stale keys from older builds or an uninstalled plugin must not linger.
+ *
+ * @return void
+ */
+function vonseo_purge_sitemap_cache()
+{
+    global $db, $cache;
+
+    if(!is_object($db) || !$db->table_exists('datacache'))
+    {
+        return;
+    }
+    // Match the prefix in PHP: LIKE escaping of "_" differs between SQL engines
+    // (SQLite has no default escape character), and "vonseo%" has no wildcard "_".
+    $titles = array();
+    $query = $db->simple_select('datacache', 'title', "title LIKE 'vonseo%'");
+    while($row = $db->fetch_array($query))
+    {
+        if(strpos($row['title'], 'vonseo_sitemap_') === 0)
+        {
+            $titles[] = $row['title'];
+        }
+    }
+    foreach($titles as $title)
+    {
+        // The row itself, plus any memory/handler copy (memcache, redis, ...).
+        $db->delete_query('datacache', "title='".$db->escape_string($title)."'");
+        if(is_object($cache) && method_exists($cache, 'delete'))
+        {
+            $cache->delete($title);
+        }
+    }
 }
 
 function vonseo_deactivate()

@@ -9,6 +9,9 @@ class VonSEO_Sitemap
     /** MyBB threads.tid is an unsigned INT. */
     const MAX_THREAD_ID = 4294967295;
 
+    /** sitemaps.org limit for one sitemap index file. */
+    const MAX_INDEX_ENTRIES = 50000;
+
     /**
      * @var VonSEO_Url
      */
@@ -92,6 +95,16 @@ class VonSEO_Sitemap
         $calendarIds = $this->publicCalendarIds();
         $eventCount = $this->eventCount($this->eventWhere($calendarIds), $calendarIds);
         $eventPages = $eventCount > 0 ? (int)ceil($eventCount / $chunk) : 0;
+
+        // The sitemap protocol allows at most 50,000 index entries. Thread pages
+        // follow thread-ID gaps, so a board with huge ID gaps could overflow it.
+        // Keep the other entries and the NEWEST thread ranges; drop the oldest.
+        $otherEntries = 1 + $announcementPages + (!empty($calendarIds) ? 1 : 0) + $eventPages;
+        $threadLimit = max(0, self::MAX_INDEX_ENTRIES - $otherEntries);
+        if(count($threadPages) > $threadLimit)
+        {
+            $threadPages = $threadLimit > 0 ? array_slice($threadPages, -$threadLimit) : array();
+        }
 
         echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
         echo "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
@@ -493,13 +506,15 @@ class VonSEO_Sitemap
         if(is_object($cache) && method_exists($cache, 'read'))
         {
             $cached = $cache->read($key);
-            if(is_array($cached) && isset($cached['expires'], $cached['pages']) && is_array($cached['pages']) &&
+            if(is_array($cached) && isset($cached['expires'], $cached['ranges']) && is_string($cached['ranges']) &&
                (int)$cached['expires'] >= $now &&
                (isset($cached['revision']) ? (string)$cached['revision'] : '') === $revision)
             {
-                return array_values(array_filter(array_map('intval', $cached['pages']), function($page) {
-                    return $page > 0;
-                }));
+                $expanded = self::expandPageRanges($cached['ranges']);
+                if($expanded !== null)
+                {
+                    return $expanded;
+                }
             }
         }
 
@@ -518,9 +533,80 @@ class VonSEO_Sitemap
         }
         $pages = array_values(array_unique($pages));
         sort($pages);
+        // Only the newest pages the index can ever show are kept.
+        if(count($pages) > self::MAX_INDEX_ENTRIES)
+        {
+            $pages = array_slice($pages, -self::MAX_INDEX_ENTRIES);
+        }
         if(is_object($cache) && method_exists($cache, 'update'))
         {
-            $cache->update($key, array('pages' => $pages, 'expires' => $now + 600, 'revision' => $revision));
+            // MyBB's default database cache store loads EVERY datacache row on
+            // every request, so store compact runs ("1-120,125") rather than
+            // one serialized integer per page.
+            $cache->update($key, array('ranges' => self::compactPageRanges($pages), 'expires' => $now + 600, 'revision' => $revision));
+        }
+        return $pages;
+    }
+
+    /**
+     * @param int[] $pages Sorted, unique, positive page numbers.
+     * @return string
+     */
+    public static function compactPageRanges(array $pages)
+    {
+        $runs = array();
+        $start = $previous = null;
+        foreach($pages as $page)
+        {
+            $page = (int)$page;
+            if($start !== null && $page === $previous + 1)
+            {
+                $previous = $page;
+                continue;
+            }
+            if($start !== null)
+            {
+                $runs[] = $start === $previous ? (string)$start : $start.'-'.$previous;
+            }
+            $start = $previous = $page;
+        }
+        if($start !== null)
+        {
+            $runs[] = $start === $previous ? (string)$start : $start.'-'.$previous;
+        }
+        return implode(',', $runs);
+    }
+
+    /**
+     * Expand compact runs. Malformed or oversized cache data returns null so
+     * the caller recomputes instead of publishing an empty index.
+     *
+     * @param string $ranges
+     * @return int[]|null
+     */
+    public static function expandPageRanges($ranges)
+    {
+        $pages = array();
+        if($ranges === '')
+        {
+            return $pages;
+        }
+        foreach(explode(',', $ranges) as $run)
+        {
+            if(!preg_match('/^([1-9][0-9]{0,9})(?:-([1-9][0-9]{0,9}))?$/D', $run, $match))
+            {
+                return null;
+            }
+            $first = (int)$match[1];
+            $last = isset($match[2]) ? (int)$match[2] : $first;
+            if($last < $first || count($pages) + ($last - $first + 1) > self::MAX_INDEX_ENTRIES)
+            {
+                return null;
+            }
+            for($page = $first; $page <= $last; ++$page)
+            {
+                $pages[] = $page;
+            }
         }
         return $pages;
     }
