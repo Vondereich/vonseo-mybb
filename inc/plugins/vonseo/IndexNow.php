@@ -809,7 +809,8 @@ class VonSEO_IndexNow
      */
     protected function isBoardUrl($url)
     {
-        if($url === '' || !filter_var($url, FILTER_VALIDATE_URL))
+        // Queue and history columns are VARCHAR(1536); never store a truncated URL.
+        if($url === '' || strlen($url) > 1536 || !filter_var($url, FILTER_VALIDATE_URL))
         {
             return false;
         }

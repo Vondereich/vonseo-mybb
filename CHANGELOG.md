@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.6 - 2026-11-27
+
+Keyword URL improvements. Schema remains 6; no migration. Apart from the IndexNow length check below, only boards with keyword URLs enabled see a difference.
+
+- Add an **ASCII Keyword Slugs** setting (off by default). When on, accented Latin letters in keyword slugs are written as plain ASCII, for example "Kâğıt Çiçek" as `kagit-cicek`, "Straße" as `strasse`, "Azərbaycan" as `azerbaycan` and "Tiếng Việt" as `tieng-viet`; Latin ligatures such as "ﬁ" become `fi`. Arabic, Cyrillic, Greek, CJK, Thai and other scripts are kept. The letter table is built in, so the result does not depend on the intl extension or the server locale.
+- Keep up to 100 characters of the title in keyword slugs (previously 60). Characters are counted as visible letters, so an accent is never cut from its letter, and the encoded slug stays within 1,000 bytes.
+- Fix keyword slugs that split words: the Turkish capital "İ" gave `i-stanbul`, an accent typed as a separate combining mark gave `a-la`, and vowel signs and other combining marks were replaced by hyphens in Thai, Devanagari, Bengali, Tamil and other Indic scripts, Khmer, Arabic with harakat and Hebrew with niqqud, so slugs change for most titles in those scripts. Emoji presentation selectors and keycaps ("I ❤️ PHP", "1️⃣"), and combining marks that do not follow a letter (for example after a space, a symbol or a digit), are dropped instead of left as invisible characters. Zero-width joiners and non-joiners (used in Persian and some Indic text) still become hyphens, as before. Decomposed accents produce the same slug as precomposed ones when the intl extension is available; if the web server and the task runner differ in having intl, such titles can get one extra redirect.
+- Use keyword URLs for public thread, post and forum links on every front-end page, including Who's Online, search results, member profiles, statistics and posting pages. Results of keyword searches keep native links, because MyBB adds a `highlight` parameter to them. Previously only Index, Forum, Thread and Portal were rewritten, and other pages could show native links. Linked threads and posts are loaded with one batch query each instead of at most ten individual lookups, so long lists are rewritten completely, and each page is scanned for links once. Private, unapproved and moved threads keep native links as before. RSS/Atom/JSON feeds keep native links because feed readers use them as item IDs, and the archive keeps its own URLs.
+- Never store an IndexNow URL longer than the 1,536-character database column.
+- Slugs change for titles whose slug was cut at 60 characters, titles with the cases above (including most titles in the scripts listed), and (when enabled) titles with accented Latin letters. Old keyword links redirect (301) to the new slug; deactivate and reactivate once to add the new setting.
+- Add regression tests for slugs in many languages, both slug modes, the length limits and the batch link lookup.
+
 ## 1.1.5 - 2026-11-21
 
 Maintenance tools. Schema remains 6; no migration.

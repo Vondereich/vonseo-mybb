@@ -6,6 +6,11 @@ if(!defined('IN_MYBB'))
 
 class VonSEO_Url
 {
+    /** Keyword slug length in user-perceived characters. */
+    const SLUG_MAX_CHARACTERS = 100;
+    /** Upper bound for the percent-encoded slug. */
+    const SLUG_MAX_ENCODED = 1000;
+
     /** @var string */
     protected $baseUrl = '';
 
@@ -355,8 +360,33 @@ class VonSEO_Url
         // Slugs deliberately keep plainText(): it drops "[TAG]" and URLs, and
         // changing it would move every published keyword URL. Titles use labelText().
         $title = VonSEO_Utils::plainText($title);
+        if(class_exists('Normalizer', false))
+        {
+            // Accents typed as separate combining marks get the same slug as precomposed ones.
+            $normalized = Normalizer::normalize($title, Normalizer::FORM_C);
+            if(is_string($normalized))
+            {
+                $title = $normalized;
+            }
+        }
+        // Lowercasing "İ" (Turkish dotted capital I) yields "i" plus a combining
+        // dot, which used to split the word ("i-stanbul").
+        $title = str_replace("\xC4\xB0", 'I', $title);
+        if(VonSEO_Utils::setting('vonseo_keyword_ascii_slugs', 0))
+        {
+            $title = self::asciiLatin($title);
+        }
         $title = function_exists('mb_strtolower') ? mb_strtolower($title, 'UTF-8') : strtolower($title);
-        $slug = preg_replace('/[^\p{L}\p{N}]+/u', '-', $title);
+        // Emoji presentation selectors and the keycap mark are marks too, but
+        // invisible in a URL ("I ❤️ PHP", "1️⃣"); marks that do not follow a
+        // letter (after a space or emoji) have nothing to attach to.
+        $cleaned = preg_replace(array('/[\x{FE00}-\x{FE0F}\x{20E3}\x{E0100}-\x{E01EF}]/u', '/(?<![\p{L}\p{M}])\p{M}+/u'), '', $title);
+        if(is_string($cleaned))
+        {
+            $title = $cleaned;
+        }
+        // Combining marks stay with their letter (\p{M}), e.g. Hindi/Thai vowel signs.
+        $slug = preg_replace('/[^\p{L}\p{M}\p{N}]+/u', '-', $title);
         if($slug === null)
         {
             $slug = preg_replace('/[^a-z0-9]+/i', '-', $title);
@@ -367,14 +397,59 @@ class VonSEO_Url
             $slug = $fallback;
         }
 
-        $characters = preg_split('//u', $slug, -1, PREG_SPLIT_NO_EMPTY);
-        if(is_array($characters) && count($characters) > 60)
+        // Count user-perceived characters (\X), so a letter is never cut from its marks.
+        $characters = preg_match_all('/\X/u', $slug, $matches) ? $matches[0] : array($slug);
+        if(count($characters) > self::SLUG_MAX_CHARACTERS)
         {
-            $slug = implode('', array_slice($characters, 0, 60));
-            $slug = trim($slug, '-');
+            $characters = array_slice($characters, 0, self::SLUG_MAX_CHARACTERS);
+        }
+        // Keep the encoded slug well inside the 1536-character URL columns even
+        // for scripts that need 4 bytes (12 encoded characters) per letter.
+        while(count($characters) > 1 && strlen(rawurlencode(implode('', $characters))) > self::SLUG_MAX_ENCODED)
+        {
+            array_pop($characters);
+        }
+        // A single cluster can still be huge (a letter with dozens of marks): keep its base only.
+        if(count($characters) === 1 && strlen(rawurlencode($characters[0])) > self::SLUG_MAX_ENCODED &&
+           preg_match('/^./su', $characters[0], $base))
+        {
+            $characters = array($base[0]);
+        }
+        $slug = trim(implode('', $characters), '-');
+        if($slug === '')
+        {
+            $slug = $fallback;
         }
 
         return rawurlencode($slug);
+    }
+
+    /**
+     * Replace Latin letters with diacritics and Latin ligatures by ASCII
+     * ("Kâğıt Çiçek" -> "Kagit Cicek", "Straße" -> "Strasse"). Other scripts
+     * (Arabic, Cyrillic, Greek, CJK, Thai, ...) are left unchanged. Uses a
+     * static table, so the result never depends on intl or the server locale.
+     *
+     * @param string $text
+     * @return string
+     */
+    public static function asciiLatin($text)
+    {
+        static $table = null;
+        if($table === null)
+        {
+            $table = require __DIR__.'/Transliterate.php';
+            if(!is_array($table))
+            {
+                $table = array();
+            }
+        }
+        $text = strtr((string)$text, $table);
+        // Without intl, decomposed input ("a" + U+0302) is not composed first,
+        // and a mapped letter may still carry extra marks: drop combining marks
+        // that follow an ASCII letter. Marks on other scripts are kept.
+        $stripped = preg_replace('/([A-Za-z])\p{Mn}+/u', '$1', $text);
+        return is_string($stripped) ? $stripped : $text;
     }
 
     /**

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.1.5',
+    [string]$Version = '1.1.6',
     [switch]$KeepPreviousArchives
 )
 
@@ -48,6 +48,7 @@ $files = @(
     'inc/plugins/vonseo/Sitemap.php',
     'inc/plugins/vonseo/Social.php',
     'inc/plugins/vonseo/State.php',
+    'inc/plugins/vonseo/Transliterate.php',
     'inc/plugins/vonseo/Url.php',
     'inc/plugins/vonseo/Utils.php',
     'inc/plugins/vonseo/index.html',
