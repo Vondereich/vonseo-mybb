@@ -30,6 +30,12 @@ class VonSEO_Keyword
     /** @var int */
     protected $postLookups = 0;
 
+    /** @var array Thread rows loaded in one batch for this page; false = missing. */
+    protected $prefetchedThreads = array();
+
+    /** Upper bound for IDs loaded per batch query. */
+    const PREFETCH_LIMIT = 500;
+
     public function __construct(?VonSEO_Url $url = null)
     {
         $this->url = $url ?: new VonSEO_Url();
@@ -141,15 +147,29 @@ class VonSEO_Keyword
      */
     public function rewriteHtml($html, $script)
     {
-        if(!$this->url->keywordUrlsEnabled() ||
-           !in_array($script, array('index.php', 'forumdisplay.php', 'showthread.php', 'portal.php'), true))
+        // Every front-end page rendered through MyBB's output_page() is eligible
+        // (Who's Online, search results, profiles, stats, posting pages, ...), so
+        // a public thread or forum never shows two different URLs across the board.
+        if(!$this->url->keywordUrlsEnabled())
         {
             return $html;
         }
 
-        return VonSEO_Html::rewriteAnchors($html, function($href)
+        // Tokenize once and parse each distinct href once.
+        $anchors = VonSEO_Html::anchors($html);
+        $links = array();
+        foreach($anchors as $anchor)
         {
-            $link = $this->parseLink($href);
+            if(!array_key_exists($anchor['value'], $links))
+            {
+                $links[$anchor['value']] = $this->parseLink($anchor['value']);
+            }
+        }
+        $this->prefetch($links);
+
+        return VonSEO_Html::rewriteAnchors($html, function($href) use ($links)
+        {
+            $link = array_key_exists($href, $links) ? $links[$href] : $this->parseLink($href);
             if(!$link)
             {
                 return '';
@@ -165,7 +185,7 @@ class VonSEO_Keyword
             // Other navigation retains the fragment MyBB originally emitted.
             $fragment = !empty($link['post']) ? '' : $link['fragment'];
             return $destination.$fragment;
-        });
+        }, $anchors);
     }
 
     /**
@@ -234,8 +254,17 @@ class VonSEO_Keyword
             global $threadcache;
             $thread = isset($threadcache[$link['id']]) && is_array($threadcache[$link['id']])
                 ? $threadcache[$link['id']] : false;
-            if(!is_array($thread) || empty($thread['tid']) || empty($thread['fid']) ||
-               !isset($thread['visible']) || !isset($thread['subject']))
+            if(!self::completeThread($thread) && array_key_exists($link['id'], $this->prefetchedThreads))
+            {
+                $thread = $this->prefetchedThreads[$link['id']];
+                if(!is_array($thread))
+                {
+                    // The batch query found no such thread: no extra lookup.
+                    $this->threads[$link['id']] = false;
+                    return '';
+                }
+            }
+            if(!self::completeThread($thread))
             {
                 // MyBB already has listing rows in threadcache. Bound only
                 // additional database lookups on custom theme links.
@@ -271,6 +300,90 @@ class VonSEO_Keyword
         }
 
         return $this->url->thread($link['id'], $link['page'], $thread['subject']);
+    }
+
+    /**
+     * Load every thread and post a page links to in one query each, so pages
+     * outside forum listings (Who's Online, search, profiles, stats) rewrite
+     * all of their public links instead of only the first few.
+     *
+     * @param array $links Parsed links (parseLink() results, false for others).
+     * @return void
+     */
+    protected function prefetch(array $links)
+    {
+        global $db, $threadcache;
+
+        if(!is_object($db) || !method_exists($db, 'simple_select'))
+        {
+            return;
+        }
+        $tids = array();
+        $pids = array();
+        foreach($links as $link)
+        {
+            if(!$link || $link['kind'] !== 'thread')
+            {
+                continue;
+            }
+            $tid = (int)$link['id'];
+            $cached = isset($threadcache[$tid]) && self::completeThread($threadcache[$tid]);
+            if(!$cached && !array_key_exists($tid, $this->threads) && !array_key_exists($tid, $this->prefetchedThreads))
+            {
+                $tids[$tid] = $tid;
+            }
+            if(!empty($link['post']) && !array_key_exists((int)$link['post'], $this->posts))
+            {
+                $pids[(int)$link['post']] = (int)$link['post'];
+            }
+        }
+
+        $tids = array_slice($tids, 0, self::PREFETCH_LIMIT);
+        if($tids)
+        {
+            foreach($tids as $tid)
+            {
+                $this->prefetchedThreads[$tid] = false;
+            }
+            $query = $db->simple_select('threads', 'tid,fid,subject,visible,closed', 'tid IN ('.implode(',', $tids).')');
+            while($row = $db->fetch_array($query))
+            {
+                if(isset($row['tid']) && array_key_exists((int)$row['tid'], $this->prefetchedThreads))
+                {
+                    $this->prefetchedThreads[(int)$row['tid']] = $row;
+                }
+            }
+        }
+
+        $pids = array_slice($pids, 0, self::PREFETCH_LIMIT);
+        if($pids)
+        {
+            foreach($pids as $pid)
+            {
+                $this->posts[$pid] = false;
+            }
+            $query = $db->simple_select('posts', 'pid,tid,visible', 'pid IN ('.implode(',', $pids).')');
+            while($row = $db->fetch_array($query))
+            {
+                if(isset($row['pid'], $row['tid'], $row['visible']) && (int)$row['tid'] > 0 &&
+                   array_key_exists((int)$row['pid'], $this->posts))
+                {
+                    $this->posts[(int)$row['pid']] = $row;
+                }
+            }
+        }
+    }
+
+    /**
+     * A thread row carries everything publicThread() and the slug need.
+     *
+     * @param mixed $thread
+     * @return bool
+     */
+    protected static function completeThread($thread)
+    {
+        return is_array($thread) && !empty($thread['tid']) && !empty($thread['fid']) &&
+            isset($thread['visible'], $thread['subject']);
     }
 
     /**

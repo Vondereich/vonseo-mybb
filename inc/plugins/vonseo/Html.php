@@ -42,22 +42,38 @@ class VonSEO_Html
         return $output.substr($html, $head['close_start']);
     }
 
-    /** @return string */
-    public static function rewriteAnchors(string $html, callable $resolve)
+    /**
+     * href attributes (value, offsets, quote) of opening anchors in document
+     * order. Tokenize once and pass the result to rewriteAnchors().
+     *
+     * @return array
+     */
+    public static function anchors(string $html)
+    {
+        $anchors = array();
+        foreach(self::tags($html) as $tag)
+        {
+            if($tag['name'] === 'a' && !$tag['closing'] && isset($tag['attributes']['href']) &&
+               $tag['attributes']['href']['length'] > 0)
+            {
+                $anchors[] = $tag['attributes']['href'];
+            }
+        }
+        return $anchors;
+    }
+
+    /**
+     * @param string $html
+     * @param callable $resolve
+     * @param array|null $anchors Result of anchors() for the same $html, to avoid tokenizing twice.
+     * @return string
+     */
+    public static function rewriteAnchors(string $html, callable $resolve, $anchors = null)
     {
         $output = '';
         $cursor = 0;
-        foreach(self::tags($html) as $tag)
+        foreach(is_array($anchors) ? $anchors : self::anchors($html) as $href)
         {
-            if($tag['name'] !== 'a' || $tag['closing'] || !isset($tag['attributes']['href']))
-            {
-                continue;
-            }
-            $href = $tag['attributes']['href'];
-            if($href['length'] === 0)
-            {
-                continue;
-            }
             $destination = $resolve($href['value']);
             if(!is_string($destination) || $destination === '')
             {

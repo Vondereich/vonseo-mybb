@@ -9,7 +9,7 @@
  * - no core edits
  *
  * @package VonSEO
- * @version 1.1.5
+ * @version 1.1.6
  */
 
 if(!defined('IN_MYBB'))
@@ -318,6 +318,14 @@ function vonseo_install()
             'optionscode' => 'onoff',
             'value'       => '0',
             'disporder'   => 27
+        ),
+        array(
+            'name'        => 'vonseo_keyword_ascii_slugs',
+            'title'       => 'ASCII Keyword Slugs',
+            'description' => 'Write accented Latin letters in keyword URL slugs as plain ASCII, for example "Kâğıt Çiçek" as kagit-cicek and "Straße" as strasse. Other scripts such as Arabic, Cyrillic, Chinese or Thai are kept. Only affects keyword URLs; changing it changes those slugs, and old keyword links redirect (301) to the new ones.',
+            'optionscode' => 'onoff',
+            'value'       => '0',
+            'disporder'   => 28
         )
     );
 
